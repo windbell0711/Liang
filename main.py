@@ -18,7 +18,7 @@ GRID_SIZE = 8  # 8x8棋盘
 POS_GRID_NW_CENTRE = (scl(543), scl(193))  # 左上第一格的中心点
 POS_GRID_SE_CENTRE = (scl(1062), scl(708))  # 右下最后一格的中心点
 
-POS_INFO_NW = (scl(1250), scl(100))
+POS_INFO_NW = (scl(1200), scl(100))
 POS_INFO_SE = (scl(1540), scl(810))
 
 # 计算网格间距
@@ -62,8 +62,10 @@ def load_images():
         images['board'].fill(LIGHT_BROWN)
 
     # 加载棋子图片
-    piece_colors = ['red', 'blue', 'green', 'yellow']
+    piece_colors = ['red', 'blue']
+    piece_types = ['pawn', 'rook', 'knight', 'bishop', 'queen', 'king']
     for color in piece_colors:
+        # 加载通用颜色棋子
         try:
             images[f'piece_{color}'] = pygame.image.load(f"images/piece_{color}.png").convert_alpha()
             images[f'piece_{color}'] = pygame.transform.scale(images[f'piece_{color}'], (PIECE_SIZE, PIECE_SIZE))
@@ -74,11 +76,15 @@ def load_images():
                 pygame.draw.circle(images[f'piece_{color}'], RED, (PIECE_SIZE // 2, PIECE_SIZE // 2), PIECE_SIZE // 2)
             elif color == 'blue':
                 pygame.draw.circle(images[f'piece_{color}'], BLUE, (PIECE_SIZE // 2, PIECE_SIZE // 2), PIECE_SIZE // 2)
-            elif color == 'green':
-                pygame.draw.circle(images[f'piece_{color}'], GREEN, (PIECE_SIZE // 2, PIECE_SIZE // 2), PIECE_SIZE // 2)
-            elif color == 'yellow':
-                pygame.draw.circle(images[f'piece_{color}'], YELLOW, (PIECE_SIZE // 2, PIECE_SIZE // 2),
-                                   PIECE_SIZE // 2)
+        
+        # 加载特定类型棋子
+        for ptype in piece_types:
+            try:
+                images[f'piece_{color}_{ptype}'] = pygame.image.load(f"images/piece_{color}_{ptype}.png").convert_alpha()
+                images[f'piece_{color}_{ptype}'] = pygame.transform.scale(images[f'piece_{color}_{ptype}'], (PIECE_SIZE, PIECE_SIZE))
+            except:
+                print(f"Cannot load piece_{color}_{ptype}.png, using default piece")
+                # 如果没有专用贴图，将使用通用颜色贴图
 
     # 加载高亮和有效移动提示
     try:
@@ -144,8 +150,8 @@ class Piece:
             highlight_rect = images['highlight'].get_rect(center=(x, y))
             screen.blit(images['highlight'], highlight_rect)
 
-        # 绘制棋子
-        piece_img = images[f'piece_{self.color}']
+        # 绘制棋子（优先使用专用贴图）
+        piece_img = images.get(f'piece_{self.color}_{self.type}', images[f'piece_{self.color}'])
         piece_rect = piece_img.get_rect(center=(x, y))
         screen.blit(piece_img, piece_rect)
 
@@ -173,23 +179,39 @@ class Player:
         # 根据玩家颜色初始化棋子位置
         # 这里只是一个示例，您需要根据您的游戏规则来设置
         if self.color == 'red':
-            for i in range(self.piece_count):
-                row = 1
-                col = i % GRID_SIZE
-                self.pieces.append(Piece(i + 1, 'pawn', self.color, row, col))
+            # 红方初始布局（棋盘下方）
+            self.pieces = [
+                Piece(1, 'rook', 'red', 0, 0),
+                Piece(2, 'knight', 'red', 0, 1),
+                Piece(3, 'bishop', 'red', 0, 2),
+                Piece(4, 'queen', 'red', 0, 3),
+                Piece(5, 'king', 'red', 0, 4),
+                Piece(6, 'bishop', 'red', 0, 5),
+                Piece(7, 'knight', 'red', 0, 6),
+                Piece(8, 'rook', 'red', 0, 7),
+                *[Piece(9+i, 'pawn', 'red', 1, i) for i in range(8)]
+            ]
         elif self.color == 'blue':
-            for i in range(self.piece_count):
-                row = 6
-                col = i % GRID_SIZE
-                self.pieces.append(Piece(i + 1, 'pawn', self.color, row, col))
+            # 蓝方初始布局（棋盘上方）
+            self.pieces = [
+                Piece(1, 'rook', 'blue', 7, 0),
+                Piece(2, 'knight', 'blue', 7, 1),
+                Piece(3, 'bishop', 'blue', 7, 2),
+                Piece(4, 'queen', 'blue', 7, 3),
+                Piece(5, 'king', 'blue', 7, 4),
+                Piece(6, 'bishop', 'blue', 7, 5),
+                Piece(7, 'knight', 'blue', 7, 6),
+                Piece(8, 'rook', 'blue', 7, 7),
+                *[Piece(9+i, 'pawn', 'blue', 6, i) for i in range(8)]
+            ]
 
 
 # 游戏类
 class Game:
     def __init__(self):
         self.images = load_images()
-        self.font = pygame.font.SysFont(None, 24)
-        self.title_font = pygame.font.SysFont(None, 36)
+        self.font = pygame.font.Font('simsun.ttc', scl(24))
+        self.title_font = pygame.font.Font('simsun.ttc', scl(38))
         self.players = [
             Player('red', 8),
             Player('blue', 8)
@@ -241,8 +263,8 @@ class Game:
         # pygame.draw.rect(screen, BLACK, info_rect, 2)  # 边框
 
         # 设置字体
-        font_large = pygame.font.SysFont(None, 36)
-        font_small = pygame.font.SysFont(None, 28)
+        font_large = pygame.font.Font('simsun.ttc', scl(36))
+        font_small = pygame.font.Font('simsun.ttc', scl(28))
 
         # 计算文本起始位置
         x = POS_INFO_NW[0] + 10
@@ -323,14 +345,87 @@ class Game:
                 self.valid_moves = []
 
     def get_valid_moves(self, row, col):
-        # 这里需要您实现获取有效移动位置的逻辑
-        # 这只是示例代码，返回相邻的位置
+        piece = self.board[row][col]
         moves = []
-        for dr, dc in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
-            r, c = row + dr, col + dc
-            if 0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE:
-                if self.board[r][c] is None:
-                    moves.append((r, c))
+        
+        if piece.type == 'pawn':
+            # 兵的特殊移动规则
+            direction = 1 if piece.color == 'red' else -1
+            # 基本前进
+            if 0 <= row + direction < GRID_SIZE and self.board[row + direction][col] is None:
+                moves.append((row + direction, col))
+                # 如果是初始位置，可以前进两格
+                if (piece.color == 'red' and row == 1) or (piece.color == 'blue' and row == 6):
+                    if self.board[row + 2*direction][col] is None:
+                        moves.append((row + 2*direction, col))
+            # 吃子斜进
+            for dc in [-1, 1]:
+                if 0 <= col + dc < GRID_SIZE and 0 <= row + direction < GRID_SIZE:
+                    target = self.board[row + direction][col + dc]
+                    if target and target.color != piece.color:
+                        moves.append((row + direction, col + dc))
+        
+        elif piece.type == 'rook':
+            # 车的移动规则（直线无限距离）
+            for dr, dc in [(1,0), (-1,0), (0,1), (0,-1)]:
+                for i in range(1, GRID_SIZE):
+                    r, c = row + dr*i, col + dc*i
+                    if not (0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE):
+                        break
+                    if self.board[r][c] is None:
+                        moves.append((r, c))
+                    else:
+                        if self.board[r][c].color != piece.color:
+                            moves.append((r, c))
+                        break
+        
+        elif piece.type == 'knight':
+            # 马的移动规则（L形）
+            for dr, dc in [(2,1), (2,-1), (-2,1), (-2,-1), (1,2), (1,-2), (-1,2), (-1,-2)]:
+                r, c = row + dr, col + dc
+                if 0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE:
+                    if self.board[r][c] is None or self.board[r][c].color != piece.color:
+                        moves.append((r, c))
+        
+        elif piece.type == 'bishop':
+            # 象的移动规则（斜线无限距离）
+            for dr, dc in [(1,1), (1,-1), (-1,1), (-1,-1)]:
+                for i in range(1, GRID_SIZE):
+                    r, c = row + dr*i, col + dc*i
+                    if not (0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE):
+                        break
+                    if self.board[r][c] is None:
+                        moves.append((r, c))
+                    else:
+                        if self.board[r][c].color != piece.color:
+                            moves.append((r, c))
+                        break
+        
+        elif piece.type == 'queen':
+            # 后的移动规则（直线+斜线无限距离）
+            for dr, dc in [(1,0), (-1,0), (0,1), (0,-1), (1,1), (1,-1), (-1,1), (-1,-1)]:
+                for i in range(1, GRID_SIZE):
+                    r, c = row + dr*i, col + dc*i
+                    if not (0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE):
+                        break
+                    if self.board[r][c] is None:
+                        moves.append((r, c))
+                    else:
+                        if self.board[r][c].color != piece.color:
+                            moves.append((r, c))
+                        break
+        
+        elif piece.type == 'king':
+            # 王的移动规则（单格任意方向）
+            for dr in [-1, 0, 1]:
+                for dc in [-1, 0, 1]:
+                    if dr == 0 and dc == 0:
+                        continue
+                    r, c = row + dr, col + dc
+                    if 0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE:
+                        if self.board[r][c] is None or self.board[r][c].color != piece.color:
+                            moves.append((r, c))
+
         return moves
 
     def move_piece(self, from_row, from_col, to_row, to_col):
