@@ -7,20 +7,26 @@ import math
 pygame.init()
 
 # 游戏常量
-SCREEN_WIDTH = 1600
-SCREEN_HEIGHT = 900
+SCREEN_SCALE = 0.5
+scl = lambda x: int(x * SCREEN_SCALE)
+
+SCREEN_WIDTH = scl(1600)
+SCREEN_HEIGHT = scl(900)
 GRID_SIZE = 8  # 8x8棋盘
 
 # 网格中心点坐标
-GRID_NW_CENTRE = (543, 193)  # 左上第一格的中心点
-GRID_SE_CENTRE = (1062, 708)  # 右下最后一格的中心点
+POS_GRID_NW_CENTRE = (scl(543), scl(193))  # 左上第一格的中心点
+POS_GRID_SE_CENTRE = (scl(1062), scl(708))  # 右下最后一格的中心点
+
+POS_INFO_NW = (scl(1250), scl(100))
+POS_INFO_SE = (scl(1540), scl(810))
 
 # 计算网格间距
-GRID_SPACING_X = (GRID_SE_CENTRE[0] - GRID_NW_CENTRE[0]) / (GRID_SIZE - 1)
-GRID_SPACING_Y = (GRID_SE_CENTRE[1] - GRID_NW_CENTRE[1]) / (GRID_SIZE - 1)
+GRID_SPACING_X = (POS_GRID_SE_CENTRE[0] - POS_GRID_NW_CENTRE[0]) / (GRID_SIZE - 1)
+GRID_SPACING_Y = (POS_GRID_SE_CENTRE[1] - POS_GRID_NW_CENTRE[1]) / (GRID_SIZE - 1)
 
 # 棋子大小
-PIECE_SIZE = 60
+PIECE_SIZE = scl(60)
 
 # 颜色定义
 WHITE = (255, 255, 255)
@@ -97,16 +103,16 @@ def load_images():
 
 # 将网格坐标转换为屏幕坐标
 def grid_to_screen(row, col):
-    x = GRID_NW_CENTRE[0] + col * GRID_SPACING_X
-    y = GRID_NW_CENTRE[1] + row * GRID_SPACING_Y
+    x = POS_GRID_NW_CENTRE[0] + col * GRID_SPACING_X
+    y = POS_GRID_NW_CENTRE[1] + row * GRID_SPACING_Y
     return (x, y)
 
 
 # 将屏幕坐标转换为网格坐标
 def screen_to_grid(x, y):
     # 计算相对于左上角第一个格子的偏移量
-    dx = x - GRID_NW_CENTRE[0]
-    dy = y - GRID_NW_CENTRE[1]
+    dx = x - POS_GRID_NW_CENTRE[0]
+    dy = y - POS_GRID_NW_CENTRE[1]
 
     # 计算网格坐标
     col = round(dx / GRID_SPACING_X)
@@ -176,16 +182,6 @@ class Player:
                 row = 6
                 col = i % GRID_SIZE
                 self.pieces.append(Piece(i + 1, 'pawn', self.color, row, col))
-        elif self.color == 'green':
-            for i in range(self.piece_count):
-                row = i % GRID_SIZE
-                col = 1
-                self.pieces.append(Piece(i + 1, 'pawn', self.color, row, col))
-        elif self.color == 'yellow':
-            for i in range(self.piece_count):
-                row = i % GRID_SIZE
-                col = 6
-                self.pieces.append(Piece(i + 1, 'pawn', self.color, row, col))
 
 
 # 游戏类
@@ -196,9 +192,7 @@ class Game:
         self.title_font = pygame.font.SysFont(None, 36)
         self.players = [
             Player('red', 8),
-            Player('blue', 8),
-            Player('green', 8),
-            Player('yellow', 8)
+            Player('blue', 8)
         ]
         self.board = [[None for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
         self.selected_piece = None
@@ -237,33 +231,57 @@ class Game:
         self.draw_game_info(screen)
 
     def draw_game_info(self, screen):
+        # 定义信息栏的位置和尺寸
+        info_rect = pygame.Rect(POS_INFO_NW[0], POS_INFO_NW[1],
+                                POS_INFO_SE[0] - POS_INFO_NW[0],
+                                POS_INFO_SE[1] - POS_INFO_NW[1])
+
+        # 绘制信息栏背景
+        # pygame.draw.rect(screen, (240, 240, 240), info_rect)
+        # pygame.draw.rect(screen, BLACK, info_rect, 2)  # 边框
+
+        # 设置字体
+        font_large = pygame.font.SysFont(None, 36)
+        font_small = pygame.font.SysFont(None, 28)
+
+        # 计算文本起始位置
+        x = POS_INFO_NW[0] + 10
+        y = POS_INFO_NW[1] + 10
+
         # 绘制当前玩家信息
         current_player = self.get_current_player()
-        text = self.title_font.render(f"Current Player: {current_player.color}", True, BLACK)
-        screen.blit(text, (1200, 50))
+        text = font_large.render(f"Current Player: {current_player.color}", True, WHITE)
+        screen.blit(text, (x, y))
+        y += 40
 
         # 绘制玩家棋子信息
-        y_offset = 100
         for player in self.players:
-            text = self.title_font.render(f"{player.color}: {len(player.pieces)} pieces", True, BLACK)
-            screen.blit(text, (1200, y_offset))
-            y_offset += 50
+            text = font_small.render(f"{player.color}: {len(player.pieces)} pieces", True, WHITE)
+            screen.blit(text, (x, y))
+            y += 30
+
+        y += 10  # 增加一些间距
 
         # 绘制操作说明
         instructions = [
-            "Click on a piece to select",
-            "Click on target position to move",
-            "Press R to restart the game"
+            "Click piece to select",
+            "Click target position to move",
+            "Press R to restart game"
         ]
 
-        for i, instruction in enumerate(instructions):
-            text = self.title_font.render(instruction, True, BLACK)
-            screen.blit(text, (1200, y_offset + i * 50))
+        for instruction in instructions:
+            text = font_small.render(instruction, True, WHITE)
+            screen.blit(text, (x, y))
+            y += 30
 
         # 如果游戏结束，显示获胜者
         if self.game_over:
-            winner_text = self.title_font.render(f"Game Over! Winner: {self.winner}", True, RED)
-            screen.blit(winner_text, (1200, y_offset + len(instructions) * 50 + 30))
+            y += 10  # 增加一些间距
+            winner_text = font_large.render(f"Game Over!", True, WHITE)
+            screen.blit(winner_text, (x, y))
+            y += 40
+            winner_text = font_large.render(f"Winner: {self.winner}", True, WHITE)
+            screen.blit(winner_text, (x, y))
 
     def handle_click(self, pos):
         if self.game_over:
@@ -345,9 +363,7 @@ class Game:
         # 重置游戏
         self.players = [
             Player('red', 8),
-            Player('blue', 8),
-            Player('green', 8),
-            Player('yellow', 8)
+            Player('blue', 8)
         ]
         self.board = [[None for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
         self.selected_piece = None
