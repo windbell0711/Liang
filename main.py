@@ -2,12 +2,13 @@ import pygame
 import sys
 import os
 import math
+from collections import defaultdict
 
 # 初始化pygame
 pygame.init()
 
 # 游戏常量
-SCREEN_SCALE = 0.5
+SCREEN_SCALE = 0.7
 scl = lambda x: int(x * SCREEN_SCALE)
 
 SCREEN_WIDTH = scl(1600)
@@ -43,6 +44,69 @@ DARK_BROWN = (139, 69, 19)
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Custom Chess Game")
 
+# 游戏事件定义
+class GameEvent:
+    SKILL_CAST = 1  # 技能释放
+    TAX_COLLECT = 2 # 征税
+    TURN_END = 3    # 回合结束
+
+# 事件处理器
+class EventHandler:
+    def __init__(self):
+        self.listeners = defaultdict(list)
+    
+    def add_listener(self, event_type, callback):
+        self.listeners[event_type].append(callback)
+    
+    def dispatch(self, event_type, data=None):
+        for callback in self.listeners[event_type]:
+            callback(data)
+
+# 资源系统
+class ResourceSystem:
+    def __init__(self):
+        self.food = {'black': 600, 'white': 600}  # 初始粮草值设为600
+        self.fertility = [[100 for _ in range(8)] for _ in range(8)]  # 丰饶度初始化为100
+    
+    def update_fertility(self, board):
+        # 每回合丰饶度衰减/恢复
+        for row in range(8):
+            for col in range(8):
+                if board[row][col]:
+                    self.fertility[row][col] = max(0, self.fertility[row][col] - 10)
+                else:
+                    self.fertility[row][col] = min(100, self.fertility[row][col] + 5)
+    
+    def collect_tax(self, player, board):
+        # 征税逻辑：根据控制的格子丰饶度获得粮草
+        total_tax = 0
+        for row in range(8):
+            for col in range(8):
+                piece = board[row][col]
+                if piece and piece.color == player.color:
+                    total_tax += self.fertility[row][col] // 10
+        self.food[player.color] += total_tax
+        return total_tax
+
+# 技能系统
+class SkillSystem:
+    SKILL_COSTS = {
+        'knight': 10,  # 马技能消耗
+        'bishop': 15,  # 象技能消耗
+        'queen': 50    # 后召唤消耗
+    }
+    
+    def __init__(self, resource_system):
+        self.resource_system = resource_system
+    
+    def can_cast_skill(self, piece_type, player_color):
+        return self.resource_system.food[player_color] >= self.SKILL_COSTS.get(piece_type, 0)
+    
+    def cast_skill(self, piece_type, player_color):
+        if self.can_cast_skill(piece_type, player_color):
+            self.resource_system.food[player_color] -= self.SKILL_COSTS[piece_type]
+            return True
+        return False
 
 # 加载图片
 def load_images():
@@ -57,12 +121,16 @@ def load_images():
         images['board'] = pygame.image.load("images/board.png").convert_alpha()
         images['board'] = pygame.transform.scale(images['board'], (SCREEN_WIDTH, SCREEN_HEIGHT))
     except:
-        print("Cannot load board.png, using default background")
-        images['board'] = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-        images['board'].fill(LIGHT_BROWN)
+        try:
+            images['board'] = pygame.image.load("images/beach.png").convert_alpha()
+            images['board'] = pygame.transform.scale(images['board'], (SCREEN_WIDTH, SCREEN_HEIGHT))
+        except:
+            print("Cannot load board.png, using default background")
+            images['board'] = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+            images['board'].fill(LIGHT_BROWN)
 
     # 加载棋子图片
-    piece_colors = ['red', 'blue']
+    piece_colors = ['black', 'white']
     piece_types = ['pawn', 'rook', 'knight', 'bishop', 'queen', 'king']
     for color in piece_colors:
         # 加载通用颜色棋子
@@ -72,10 +140,10 @@ def load_images():
         except:
             print(f"Cannot load piece_{color}.png, using default piece")
             images[f'piece_{color}'] = pygame.Surface((PIECE_SIZE, PIECE_SIZE), pygame.SRCALPHA)
-            if color == 'red':
-                pygame.draw.circle(images[f'piece_{color}'], RED, (PIECE_SIZE // 2, PIECE_SIZE // 2), PIECE_SIZE // 2)
-            elif color == 'blue':
-                pygame.draw.circle(images[f'piece_{color}'], BLUE, (PIECE_SIZE // 2, PIECE_SIZE // 2), PIECE_SIZE // 2)
+            if color == 'black':
+                pygame.draw.circle(images[f'piece_{color}'], BLACK, (PIECE_SIZE // 2, PIECE_SIZE // 2), PIECE_SIZE // 2)
+            elif color == 'white':
+                pygame.draw.circle(images[f'piece_{color}'], WHITE, (PIECE_SIZE // 2, PIECE_SIZE // 2), PIECE_SIZE // 2)
         
         # 加载特定类型棋子
         for ptype in piece_types:
@@ -156,7 +224,7 @@ class Piece:
         screen.blit(piece_img, piece_rect)
 
         # 绘制棋子ID
-        text = font.render(str(self.id), True, WHITE)
+        text = font.render(str(self.id), True, BLACK if self.color == 'white' else WHITE)
         text_rect = text.get_rect(center=(x, y))
         screen.blit(text, text_rect)
 
@@ -178,31 +246,31 @@ class Player:
     def initialize_pieces(self):
         # 根据玩家颜色初始化棋子位置
         # 这里只是一个示例，您需要根据您的游戏规则来设置
-        if self.color == 'red':
-            # 红方初始布局（棋盘下方）
+        if self.color == 'black':
+            # 黑方初始布局（棋盘下方）
             self.pieces = [
-                Piece(1, 'rook', 'red', 0, 0),
-                Piece(2, 'knight', 'red', 0, 1),
-                Piece(3, 'bishop', 'red', 0, 2),
-                Piece(4, 'queen', 'red', 0, 3),
-                Piece(5, 'king', 'red', 0, 4),
-                Piece(6, 'bishop', 'red', 0, 5),
-                Piece(7, 'knight', 'red', 0, 6),
-                Piece(8, 'rook', 'red', 0, 7),
-                *[Piece(9+i, 'pawn', 'red', 1, i) for i in range(8)]
+                Piece(1, 'rook', 'black', 0, 0),
+                Piece(2, 'knight', 'black', 0, 1),
+                Piece(3, 'bishop', 'black', 0, 2),
+                Piece(4, 'queen', 'black', 0, 3),
+                Piece(5, 'king', 'black', 0, 4),
+                Piece(6, 'bishop', 'black', 0, 5),
+                Piece(7, 'knight', 'black', 0, 6),
+                Piece(8, 'rook', 'black', 0, 7),
+                *[Piece(9+i, 'pawn', 'black', 1, i) for i in range(8)]
             ]
-        elif self.color == 'blue':
-            # 蓝方初始布局（棋盘上方）
+        elif self.color == 'white':
+            # 白方初始布局（棋盘上方）
             self.pieces = [
-                Piece(1, 'rook', 'blue', 7, 0),
-                Piece(2, 'knight', 'blue', 7, 1),
-                Piece(3, 'bishop', 'blue', 7, 2),
-                Piece(4, 'queen', 'blue', 7, 3),
-                Piece(5, 'king', 'blue', 7, 4),
-                Piece(6, 'bishop', 'blue', 7, 5),
-                Piece(7, 'knight', 'blue', 7, 6),
-                Piece(8, 'rook', 'blue', 7, 7),
-                *[Piece(9+i, 'pawn', 'blue', 6, i) for i in range(8)]
+                Piece(1, 'rook', 'white', 7, 0),
+                Piece(2, 'knight', 'white', 7, 1),
+                Piece(3, 'bishop', 'white', 7, 2),
+                Piece(4, 'queen', 'white', 7, 3),
+                Piece(5, 'king', 'white', 7, 4),
+                Piece(6, 'bishop', 'white', 7, 5),
+                Piece(7, 'knight', 'white', 7, 6),
+                Piece(8, 'rook', 'white', 7, 7),
+                *[Piece(9+i, 'pawn', 'white', 6, i) for i in range(8)]
             ]
 
 
@@ -213,8 +281,8 @@ class Game:
         self.font = pygame.font.Font('simsun.ttc', scl(24))
         self.title_font = pygame.font.Font('simsun.ttc', scl(38))
         self.players = [
-            Player('red', 8),
-            Player('blue', 8)
+            Player('black', 8),
+            Player('white', 8)
         ]
         self.board = [[None for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
         self.selected_piece = None
@@ -223,6 +291,12 @@ class Game:
         self.game_over = False
         self.winner = None
         self.initialize_board()
+        
+        # 添加资源系统、技能系统和事件处理器
+        self.resource_system = ResourceSystem()
+        self.skill_system = SkillSystem(self.resource_system)
+        self.event_handler = EventHandler()
+        self.event_handler.add_listener(GameEvent.TURN_END, self.on_turn_end)
 
     def initialize_board(self):
         # 初始化棋盘，将玩家的棋子放置到棋盘上
@@ -276,10 +350,10 @@ class Game:
         screen.blit(text, (x, y))
         y += 40
 
-        # 绘制玩家棋子信息
+        # 绘制玩家资源信息
         for player in self.players:
-            text = font_small.render(f"{player.color}: {len(player.pieces)} pieces", True, WHITE)
-            screen.blit(text, (x, y))
+            food_text = font_small.render(f"{player.color}: {len(player.pieces)} pieces, Food: {self.resource_system.food[player.color]}", True, WHITE)
+            screen.blit(food_text, (x, y))
             y += 30
 
         y += 10  # 增加一些间距
@@ -328,6 +402,15 @@ class Game:
         else:
             # 如果已经选中了棋子，尝试移动它
             if (row, col) in self.valid_moves:
+                # 检查是否有足够的资源执行移动（对于特殊技能）
+                if self.selected_piece.type in ['knight', 'bishop', 'queen']:
+                    if not self.skill_system.can_cast_skill(self.selected_piece.type, current_player.color):
+                        # 资源不足，无法执行特殊技能
+                        self.selected_piece.selected = False
+                        self.selected_piece = None
+                        self.valid_moves = []
+                        return
+                
                 self.move_piece(self.selected_piece.row, self.selected_piece.col, row, col)
                 self.selected_piece.selected = False
                 self.selected_piece = None
@@ -350,12 +433,12 @@ class Game:
         
         if piece.type == 'pawn':
             # 兵的特殊移动规则
-            direction = 1 if piece.color == 'red' else -1
+            direction = 1 if piece.color == 'black' else -1
             # 基本前进
             if 0 <= row + direction < GRID_SIZE and self.board[row + direction][col] is None:
                 moves.append((row + direction, col))
                 # 如果是初始位置，可以前进两格
-                if (piece.color == 'red' and row == 1) or (piece.color == 'blue' and row == 6):
+                if (piece.color == 'black' and row == 1) or (piece.color == 'white' and row == 6):
                     if self.board[row + 2*direction][col] is None:
                         moves.append((row + 2*direction, col))
             # 吃子斜进
@@ -431,6 +514,20 @@ class Game:
     def move_piece(self, from_row, from_col, to_row, to_col):
         # 移动棋子
         piece = self.board[from_row][from_col]
+        
+        # 如果是特殊棋子移动，消耗资源
+        if piece.type in ['knight', 'bishop', 'queen']:
+            self.skill_system.cast_skill(piece.type, piece.color)
+        
+        # 处理目标位置的棋子（吃子）
+        target_piece = self.board[to_row][to_col]
+        if target_piece:
+            # 从玩家的棋子列表中移除被吃的棋子
+            for player in self.players:
+                if target_piece in player.pieces:
+                    player.pieces.remove(target_piece)
+                    break
+        
         self.board[to_row][to_col] = piece
         self.board[from_row][from_col] = None
         piece.row = to_row
@@ -439,6 +536,16 @@ class Game:
     def switch_player(self):
         # 切换玩家
         self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
+        # 触发回合结束事件
+        self.event_handler.dispatch(GameEvent.TURN_END)
+
+    def on_turn_end(self, data=None):
+        # 回合结束时的处理逻辑
+        # 更新丰饶度
+        self.resource_system.update_fertility(self.board)
+        # 征税
+        current_player = self.get_current_player()
+        self.resource_system.collect_tax(current_player, self.board)
 
     def check_game_over(self):
         # 这里需要您实现检查游戏是否结束的逻辑
@@ -457,8 +564,8 @@ class Game:
     def reset(self):
         # 重置游戏
         self.players = [
-            Player('red', 8),
-            Player('blue', 8)
+            Player('black', 8),
+            Player('white', 8)
         ]
         self.board = [[None for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
         self.selected_piece = None
@@ -467,6 +574,10 @@ class Game:
         self.game_over = False
         self.winner = None
         self.initialize_board()
+        
+        # 重置资源系统
+        self.resource_system = ResourceSystem()
+        self.skill_system = SkillSystem(self.resource_system)
 
 
 # 主游戏循环
