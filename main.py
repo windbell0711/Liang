@@ -13,6 +13,8 @@ scl = lambda x: int(x * SCREEN_SCALE)
 
 SCREEN_WIDTH = scl(1600)
 SCREEN_HEIGHT = scl(900)
+GAME_FONT = "fonts/Minecraftia-Regular-1.ttf"
+# GAME_FONT = "fonts/simsun.ttc"
 GRID_SIZE = 8  # 8x8棋盘
 
 # 网格中心点坐标
@@ -278,8 +280,8 @@ class Player:
 class Game:
     def __init__(self):
         self.images = load_images()
-        self.font = pygame.font.Font('simsun.ttc', scl(24))
-        self.title_font = pygame.font.Font('simsun.ttc', scl(38))
+        self.font = pygame.font.Font(GAME_FONT, scl(24))
+        self.title_font = pygame.font.Font(GAME_FONT, scl(38))
         self.players = [
             Player('black', 8),
             Player('white', 8)
@@ -337,8 +339,8 @@ class Game:
         # pygame.draw.rect(screen, BLACK, info_rect, 2)  # 边框
 
         # 设置字体
-        font_large = pygame.font.Font('simsun.ttc', scl(36))
-        font_small = pygame.font.Font('simsun.ttc', scl(28))
+        font_large = pygame.font.Font(GAME_FONT, scl(36))
+        font_small = pygame.font.Font(GAME_FONT, scl(28))
 
         # 计算文本起始位置
         x = POS_INFO_NW[0] + 10
