@@ -360,6 +360,12 @@ class Game:
         self.antlers = {}  # 鹿角位置 {(row,col): owner_color}
         self.fortresses = {}  # 堡垒位置 {(row,col): owner_color}
         self.core_territories = {}  # 核心领土 {(row,col): owner_color}
+        
+        # 添加阶段状态：move(走子阶段) 和 action(行动阶段)
+        self.phase = "move"
+        # 跟踪每个玩家是否完成走子和行动
+        self.player_move_completed = [False, False]  # 跟踪每个玩家是否完成走子
+        self.player_action_completed = [False, False]  # 跟踪每个玩家是否完成行动
 
     def initialize_board(self):
         # 初始化棋盘，将玩家的棋子放置到棋盘上
@@ -374,11 +380,12 @@ class Game:
         # 绘制棋盘背景
         screen.blit(self.images['board'], (0, 0))
 
-        # 绘制有效移动位置
-        for row, col in self.valid_moves:
-            x, y = grid_to_screen(row, col)
-            move_rect = self.images['valid_move'].get_rect(center=(x, y))
-            screen.blit(self.images['valid_move'], move_rect)
+        # 只在走子阶段绘制有效移动位置
+        if self.phase == "move":
+            for row, col in self.valid_moves:
+                x, y = grid_to_screen(row, col)
+                move_rect = self.images['valid_move'].get_rect(center=(x, y))
+                screen.blit(self.images['valid_move'], move_rect)
 
         # 绘制棋子
         for row in range(GRID_SIZE):
@@ -439,6 +446,22 @@ class Game:
 
         y += 10  # 增加一些间距
 
+        # 绘制当前阶段信息
+        phase_text = font_small.render(f"Phase: {self.phase}", True, WHITE)
+        screen.blit(phase_text, (x, y))
+        y += 30
+        
+        # 绘制玩家完成状态
+        for i, player in enumerate(self.players):
+            move_status = "✓" if self.player_move_completed[i] else "○"
+            action_status = "✓" if self.player_action_completed[i] else "○"
+            status_text = font_small.render(
+                f"{player.color}: Move {move_status} | Action {action_status}", 
+                True, WHITE
+            )
+            screen.blit(status_text, (x, y))
+            y += 30
+
         # 绘制操作说明
         instructions = [
             "Click piece to select",
@@ -466,9 +489,19 @@ class Game:
             x, y = button_info['pos']
             width, height = button_info['size']
 
+            # 根据阶段和条件决定按钮是否可用
+            if button_id == 'tax' and self.phase != "action":
+                button_color = (100, 100, 100)  # 灰色表示禁用
+            elif button_id == 'skill' and (self.phase != "action" or self.selected_piece is None):
+                button_color = (100, 100, 100)  # 灰色表示禁用
+            elif button_id == 'end_turn':
+                button_color = (100, 100, 200)  # 结束回合按钮始终可用
+            else:
+                button_color = (100, 100, 200)  # 正常颜色
+
             # 绘制按钮背景
             button_rect = pygame.Rect(x, y, width, height)
-            pygame.draw.rect(screen, (100, 100, 200), button_rect)
+            pygame.draw.rect(screen, button_color, button_rect)
             pygame.draw.rect(screen, BLACK, button_rect, 2)
 
             # 绘制按钮文字
@@ -492,49 +525,97 @@ class Game:
         return None
 
     def handle_button_action(self, button_id):
-        """处理按钮点击动作"""
         current_player = self.get_current_player()
+        current_idx = self.current_player_idx
+        
         if button_id == 'tax':
-            # 检查是否有足够的粮草
-            if self.resource_system.food[current_player.color] <= 0:
-                print(f"{current_player.color} 粮草不足，无法征税")
-                return
-            tax_collected = self.resource_system.collect_tax(current_player, self.board)
-            self.resource_system.food[current_player.color] -= 1  # 征税消耗1点粮草
-            print(f"{current_player.color} 征税获得 {tax_collected} 粮草，消耗1点粮草")
+            # 征税逻辑（只在行动阶段有效）
+            if self.phase == "action":
+                # 检查是否有足够的粮草
+                if self.resource_system.food[current_player.color] <= 0:
+                    print(f"{current_player.color} 粮草不足，无法征税")
+                    return
+                tax_collected = self.resource_system.collect_tax(current_player, self.board)
+                self.resource_system.food[current_player.color] -= 1  # 征税消耗1点粮草
+                print(f"{current_player.color} 征税获得 {tax_collected} 粮草，消耗1点粮草")
+                
         elif button_id == 'end_turn':
-            self.switch_player()
-        elif button_id == 'skill':
-            print("技能按钮被点击！")
-            # 这里可以添加具体的技能选择逻辑
-            if self.selected_piece and self.selected_piece.color == current_player.color:
-                # 根据棋子类型使用相应技能
-                if self.selected_piece.type == 'pawn':
-                    success, msg = self.pawn_skill(self.selected_piece)
-                    if success:
-                        self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
-                    print(msg)
-                elif self.selected_piece.type == 'rook':
-                    success, msg = self.rook_skill(self.selected_piece)
-                    if success:
-                        self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
-                    print(msg)
-                elif self.selected_piece.type == 'knight':
-                    success, msg = self.knight_skill(self.selected_piece)
-                    if success:
-                        self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
-                    print(msg)
-                elif self.selected_piece.type == 'king':
-                    success, msg = self.king_skill(self.selected_piece)
-                    if success:
-                        self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
-                    print(msg)
-                elif self.selected_piece.type in ['bishop', 'queen']:
-                    self.use_ability(self.selected_piece)
+            # 结束当前阶段
+            if self.phase == "move":
+                # 在走子阶段结束回合，标记当前玩家已完成走子
+                self.player_move_completed[current_idx] = True
+                
+                # 检查是否所有玩家都完成了走子
+                if all(self.player_move_completed):
+                    # 所有玩家完成走子，切换到行动阶段
+                    self.phase = "action"
+                    self.player_action_completed = [False, False]
+                    self.current_player_idx = 0
+                    # 清除任何选中的棋子
+                    if self.selected_piece:
+                        self.selected_piece.selected = False
+                        self.selected_piece = None
                 else:
-                    print("该棋子没有特殊技能")
-            else:
-                print("请先选择一个自己的棋子再使用技能")
+                    # 切换到下一个玩家继续走子
+                    self.current_player_idx = (current_idx + 1) % len(self.players)
+                    # 清除任何选中的棋子
+                    if self.selected_piece:
+                        self.selected_piece.selected = False
+                        self.selected_piece = None
+                    
+            elif self.phase == "action":
+                # 在行动阶段结束回合，标记当前玩家已完成行动
+                self.player_action_completed[current_idx] = True
+                
+                # 检查是否所有玩家都完成了行动
+                if all(self.player_action_completed):
+                    # 所有玩家完成行动，切换到下一回合的走子阶段
+                    self.phase = "move"
+                    self.player_move_completed = [False, False]
+                    # 触发回合结束事件
+                    self.event_handler.dispatch(GameEvent.TURN_END)
+                    # 从第一个玩家开始新回合
+                    self.current_player_idx = 0
+                else:
+                    # 切换到下一个玩家继续行动
+                    self.current_player_idx = (current_idx + 1) % len(self.players)
+                
+                # 清除任何选中的棋子
+                if self.selected_piece:
+                    self.selected_piece.selected = False
+                    self.selected_piece = None
+                    
+        elif button_id == 'skill':
+            # 技能逻辑（只在行动阶段有效）
+            if self.phase == "action":
+                if self.selected_piece and self.selected_piece.color == current_player.color:
+                    # 根据棋子类型使用相应技能
+                    if self.selected_piece.type == 'pawn':
+                        success, msg = self.pawn_skill(self.selected_piece)
+                        if success:
+                            self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
+                        print(msg)
+                    elif self.selected_piece.type == 'rook':
+                        success, msg = self.rook_skill(self.selected_piece)
+                        if success:
+                            self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
+                        print(msg)
+                    elif self.selected_piece.type == 'knight':
+                        success, msg = self.knight_skill(self.selected_piece)
+                        if success:
+                            self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
+                        print(msg)
+                    elif self.selected_piece.type == 'king':
+                        success, msg = self.king_skill(self.selected_piece)
+                        if success:
+                            self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
+                        print(msg)
+                    elif self.selected_piece.type in ['bishop', 'queen']:
+                        self.use_ability(self.selected_piece)
+                    else:
+                        print("该棋子没有特殊技能")
+                else:
+                    print("请先选择一个自己的棋子再使用技能")
 
     def is_blocked(self, from_pos, to_pos, attacker_color):
         """检查移动路径是否被障碍物阻挡"""
@@ -608,21 +689,56 @@ class Game:
     def handle_click(self, pos):
         if self.game_over:
             return
+            
+        # 根据当前阶段决定处理逻辑
+        if self.phase == "move":
+            self._handle_move_phase(pos)
+        elif self.phase == "action":
+            self._handle_action_phase(pos)
 
+    def _handle_action_phase(self, pos):
         # 先检查是否点击了按钮
         button_clicked = self.check_button_click(pos)
         if button_clicked:
             # 处理按钮点击
             self.handle_button_action(button_clicked)
             return
+            
+        # 将屏幕坐标转换为网格坐标
+        grid_pos = screen_to_grid(pos[0], pos[1])
+        if grid_pos is None:
+            return
+            
+        row, col = grid_pos
+        current_player = self.get_current_player()
+        
+        # 如果没有选中的棋子，尝试选择一个
+        if self.selected_piece is None:
+            if self.board[row][col] and self.board[row][col].color == current_player.color:
+                self.board[row][col].selected = True
+                self.selected_piece = self.board[row][col]
+                # 在行动阶段不显示移动范围
+                self.valid_moves = []
+        else:
+            # 如果已经选中了棋子，检查是否点击了同一棋子（取消选择）
+            if (row, col) == (self.selected_piece.row, self.selected_piece.col):
+                self.selected_piece.selected = False
+                self.selected_piece = None
+                self.valid_moves = []
+            # 如果点击了其他棋子，切换选择
+            elif self.board[row][col] and self.board[row][col].color == current_player.color:
+                self.selected_piece.selected = False
+                self.board[row][col].selected = True
+                self.selected_piece = self.board[row][col]
+                self.valid_moves = []
 
+    def _handle_move_phase(self, pos):
         # 将屏幕坐标转换为网格坐标
         grid_pos = screen_to_grid(pos[0], pos[1])
         if grid_pos is None:
             return
 
         row, col = grid_pos
-
         current_player = self.get_current_player()
 
         # 如果没有选中的棋子，尝试选择一个
@@ -649,8 +765,21 @@ class Game:
                 self.selected_piece = None
                 self.valid_moves = []
 
-                # 切换玩家
-                self.switch_player()
+                # 标记当前玩家已完成走子
+                current_idx = self.current_player_idx
+                self.player_move_completed[current_idx] = True
+                
+                # 检查是否所有玩家都完成了走子
+                if all(self.player_move_completed):
+                    # 所有玩家完成走子，切换到行动阶段
+                    self.phase = "action"
+                    # 重置行动完成状态
+                    self.player_action_completed = [False, False]
+                    # 从第一个玩家开始行动
+                    self.current_player_idx = 0
+                else:
+                    # 切换到下一个玩家继续走子
+                    self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
 
                 # 检查游戏是否结束
                 self.check_game_over()
@@ -845,6 +974,11 @@ class Game:
         # 重置资源系统
         self.resource_system = ResourceSystem()
         self.skill_system = SkillSystem(self.resource_system)
+        
+        # 重置阶段状态
+        self.phase = "move"
+        self.player_move_completed = [False, False]  # 跟踪每个玩家是否完成走子
+        self.player_action_completed = [False, False]  # 跟踪每个玩家是否完成行动
 
 
 # 主游戏循环
