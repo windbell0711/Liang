@@ -14,7 +14,7 @@ scl = lambda x: int(x * SCREEN_SCALE)
 SCREEN_WIDTH = scl(1600)
 SCREEN_HEIGHT = scl(900)
 GAME_FONT = "fonts/Minecraftia-Regular-1.ttf"
-# GAME_FONT = "fonts/simsun.ttc"
+GAME_BTN_FONT = "fonts/simsun.ttc"
 GRID_SIZE = 8  # 8x8棋盘
 
 # 网格中心点坐标
@@ -56,10 +56,10 @@ class GameEvent:
 class EventHandler:
     def __init__(self):
         self.listeners = defaultdict(list)
-    
+
     def add_listener(self, event_type, callback):
         self.listeners[event_type].append(callback)
-    
+
     def dispatch(self, event_type, data=None):
         for callback in self.listeners[event_type]:
             callback(data)
@@ -69,7 +69,9 @@ class ResourceSystem:
     def __init__(self):
         self.food = {'black': 600, 'white': 600}  # 初始粮草值设为600
         self.fertility = [[100 for _ in range(8)] for _ in range(8)]  # 丰饶度初始化为100
-    
+        # 添加叛乱值
+        self.rebellion = [[0 for _ in range(8)] for _ in range(8)]
+
     def update_fertility(self, board):
         # 每回合丰饶度衰减/恢复
         for row in range(8):
@@ -78,7 +80,7 @@ class ResourceSystem:
                     self.fertility[row][col] = max(0, self.fertility[row][col] - 10)
                 else:
                     self.fertility[row][col] = min(100, self.fertility[row][col] + 5)
-    
+
     def collect_tax(self, player, board):
         # 征税逻辑：根据控制的格子丰饶度获得粮草
         total_tax = 0
@@ -93,17 +95,20 @@ class ResourceSystem:
 # 技能系统
 class SkillSystem:
     SKILL_COSTS = {
+        'pawn': 10,    # 兵技能消耗
         'knight': 10,  # 马技能消耗
-        'bishop': 15,  # 象技能消耗
-        'queen': 50    # 后召唤消耗
+        'rook': 10,    # 车技能消耗
+        'bishop': 10,  # 象技能消耗
+        'queen': 50,   # 后召唤消耗
+        'king': 10     # 王技能消耗
     }
-    
+
     def __init__(self, resource_system):
         self.resource_system = resource_system
-    
+
     def can_cast_skill(self, piece_type, player_color):
         return self.resource_system.food[player_color] >= self.SKILL_COSTS.get(piece_type, 0)
-    
+
     def cast_skill(self, piece_type, player_color):
         if self.can_cast_skill(piece_type, player_color):
             self.resource_system.food[player_color] -= self.SKILL_COSTS[piece_type]
@@ -146,7 +151,7 @@ def load_images():
                 pygame.draw.circle(images[f'piece_{color}'], BLACK, (PIECE_SIZE // 2, PIECE_SIZE // 2), PIECE_SIZE // 2)
             elif color == 'white':
                 pygame.draw.circle(images[f'piece_{color}'], WHITE, (PIECE_SIZE // 2, PIECE_SIZE // 2), PIECE_SIZE // 2)
-        
+
         # 加载特定类型棋子
         for ptype in piece_types:
             try:
@@ -155,6 +160,28 @@ def load_images():
             except:
                 print(f"Cannot load piece_{color}_{ptype}.png, using default piece")
                 # 如果没有专用贴图，将使用通用颜色贴图
+
+    # 加载障碍物贴图
+    for color in piece_colors:
+        try:
+            images[f'obstacle_{color}_lujiao'] = pygame.image.load(f"images/obstacle_{color}_lujiao.png").convert_alpha()
+            images[f'obstacle_{color}_lujiao'] = pygame.transform.scale(images[f'obstacle_{color}_lujiao'], (PIECE_SIZE, PIECE_SIZE))
+        except:
+            print(f"Cannot load obstacle_{color}_lujiao.png, using default indicator")
+            images[f'obstacle_{color}_lujiao'] = pygame.Surface((PIECE_SIZE, PIECE_SIZE), pygame.SRCALPHA)
+            # 使用颜色圆圈作为默认显示
+            circle_color = BLACK if color == 'black' else WHITE
+            pygame.draw.circle(images[f'obstacle_{color}_lujiao'], circle_color, (PIECE_SIZE // 2, PIECE_SIZE // 2), PIECE_SIZE // 3)
+
+        # 新增：加载堡垒贴图
+        try:
+            images[f'obstacle_{color}_fortress'] = pygame.image.load(f"images/obstacle_{color}_fortress.png").convert_alpha()
+            images[f'obstacle_{color}_fortress'] = pygame.transform.scale(images[f'obstacle_{color}_fortress'], (PIECE_SIZE, PIECE_SIZE))
+        except:
+            print(f"Cannot load obstacle_{color}_fortress.png, using default indicator")
+            images[f'obstacle_{color}_fortress'] = pygame.Surface((PIECE_SIZE, PIECE_SIZE), pygame.SRCALPHA)
+            circle_color = BLACK if color == 'black' else WHITE
+            pygame.draw.rect(images[f'obstacle_{color}_fortress'], circle_color, (0, 0, PIECE_SIZE, PIECE_SIZE))
 
     # 加载高亮和有效移动提示
     try:
@@ -278,10 +305,32 @@ class Player:
 
 # 游戏类
 class Game:
+    BUTTONS = {
+        'skill': {
+            'name': '开大',
+            'pos': [scl(50), scl(50)],  # 调整到合适位置
+            'size': [scl(80), scl(40)],
+            'anchor': 'NW'
+        },
+        'tax': {
+            'name': '征税',
+            'pos': [scl(50), scl(100)],
+            'size': [scl(80), scl(40)],
+            'anchor': 'NW'
+        },
+        'end_turn': {
+            'name': '结束回合',
+            'pos': [scl(50), scl(150)],
+            'size': [scl(100), scl(40)],
+            'anchor': 'NW'
+        }
+    }
+
     def __init__(self):
         self.images = load_images()
         self.font = pygame.font.Font(GAME_FONT, scl(24))
         self.title_font = pygame.font.Font(GAME_FONT, scl(38))
+        self.button_font = pygame.font.Font(GAME_BTN_FONT, scl(20))
         self.players = [
             Player('black', 8),
             Player('white', 8)
@@ -293,12 +342,24 @@ class Game:
         self.game_over = False
         self.winner = None
         self.initialize_board()
-        
+
         # 添加资源系统、技能系统和事件处理器
         self.resource_system = ResourceSystem()
         self.skill_system = SkillSystem(self.resource_system)
         self.event_handler = EventHandler()
         self.event_handler.add_listener(GameEvent.TURN_END, self.on_turn_end)
+
+        # 添加按钮状态
+        self.buttons = self.BUTTONS.copy()
+        # 添加技能相关属性
+        self.pawn_abilities = {}  # 存储兵的鹿角技能效果
+        self.rook_fortresses = {}  # 存储车的堡垒技能效果
+        self.king_cores = {}  # 存储王的核心化领土效果
+        
+        # 添加障碍物系统
+        self.antlers = {}  # 鹿角位置 {(row,col): owner_color}
+        self.fortresses = {}  # 堡垒位置 {(row,col): owner_color}
+        self.core_territories = {}  # 核心领土 {(row,col): owner_color}
 
     def initialize_board(self):
         # 初始化棋盘，将玩家的棋子放置到棋盘上
@@ -324,6 +385,24 @@ class Game:
             for col in range(GRID_SIZE):
                 if self.board[row][col]:
                     self.board[row][col].draw(screen, self.images, self.font)
+
+        # 绘制障碍物
+        # 绘制鹿角障碍物
+        for (row, col), color in self.antlers.items():
+            x, y = grid_to_screen(row, col)
+            antler_img = self.images.get(f'obstacle_{color}_lujiao')
+            antler_rect = antler_img.get_rect(center=(x, y))
+            screen.blit(antler_img, antler_rect)
+
+        # 新增：绘制堡垒障碍物
+        for (row, col), color in self.fortresses.items():
+            x, y = grid_to_screen(row, col)
+            fortress_img = self.images.get(f'obstacle_{color}_fortress')
+            fortress_rect = fortress_img.get_rect(center=(x, y))
+            screen.blit(fortress_img, fortress_rect)
+
+        # 绘制按钮
+        self.draw_buttons(screen)
 
         # 绘制游戏信息
         self.draw_game_info(screen)
@@ -381,8 +460,160 @@ class Game:
             winner_text = font_large.render(f"Winner: {self.winner}", True, WHITE)
             screen.blit(winner_text, (x, y))
 
+    def draw_buttons(self, screen):
+        """绘制所有按钮"""
+        for button_id, button_info in self.buttons.items():
+            x, y = button_info['pos']
+            width, height = button_info['size']
+
+            # 绘制按钮背景
+            button_rect = pygame.Rect(x, y, width, height)
+            pygame.draw.rect(screen, (100, 100, 200), button_rect)
+            pygame.draw.rect(screen, BLACK, button_rect, 2)
+
+            # 绘制按钮文字
+            text = self.button_font.render(button_info['name'], True, WHITE)
+            text_rect = text.get_rect(center=(x + width//2, y + height//2))
+            screen.blit(text, text_rect)
+
+    def check_button_click(self, pos):
+        """检查是否点击了按钮"""
+        x, y = pos
+        for button_id, button_info in self.buttons.items():
+            btn_x, btn_y = button_info['pos']
+            btn_width, btn_height = button_info['size']
+
+            # 检查点击位置是否在按钮范围内
+            if (btn_x <= x <= btn_x + btn_width and
+                btn_y <= y <= btn_y + btn_height):
+                print(f"按钮被点击: {button_id}")
+                return button_id
+
+        return None
+
+    def handle_button_action(self, button_id):
+        """处理按钮点击动作"""
+        current_player = self.get_current_player()
+        if button_id == 'tax':
+            # 检查是否有足够的粮草
+            if self.resource_system.food[current_player.color] <= 0:
+                print(f"{current_player.color} 粮草不足，无法征税")
+                return
+            tax_collected = self.resource_system.collect_tax(current_player, self.board)
+            self.resource_system.food[current_player.color] -= 1  # 征税消耗1点粮草
+            print(f"{current_player.color} 征税获得 {tax_collected} 粮草，消耗1点粮草")
+        elif button_id == 'end_turn':
+            self.switch_player()
+        elif button_id == 'skill':
+            print("技能按钮被点击！")
+            # 这里可以添加具体的技能选择逻辑
+            if self.selected_piece and self.selected_piece.color == current_player.color:
+                # 根据棋子类型使用相应技能
+                if self.selected_piece.type == 'pawn':
+                    success, msg = self.pawn_skill(self.selected_piece)
+                    if success:
+                        self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
+                    print(msg)
+                elif self.selected_piece.type == 'rook':
+                    success, msg = self.rook_skill(self.selected_piece)
+                    if success:
+                        self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
+                    print(msg)
+                elif self.selected_piece.type == 'knight':
+                    success, msg = self.knight_skill(self.selected_piece)
+                    if success:
+                        self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
+                    print(msg)
+                elif self.selected_piece.type == 'king':
+                    success, msg = self.king_skill(self.selected_piece)
+                    if success:
+                        self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
+                    print(msg)
+                elif self.selected_piece.type in ['bishop', 'queen']:
+                    self.use_ability(self.selected_piece)
+                else:
+                    print("该棋子没有特殊技能")
+            else:
+                print("请先选择一个自己的棋子再使用技能")
+
+    def is_blocked(self, from_pos, to_pos, attacker_color):
+        """检查移动路径是否被障碍物阻挡"""
+        from_row, from_col = from_pos
+        to_row, to_col = to_pos
+
+        # 直线移动检测
+        if from_row == to_row or from_col == to_col:
+            if from_row == to_row:  # 水平移动
+                step = 1 if to_col > from_col else -1
+                for col in range(from_col + step, to_col, step):
+                    pos = (from_row, col)
+                    if pos in self.antlers and self.antlers[pos] != attacker_color:
+                        return True
+            else:  # 垂直移动
+                step = 1 if to_row > from_row else -1
+                for row in range(from_row + step, to_row, step):
+                    pos = (row, from_col)
+                    if pos in self.antlers and self.antlers[pos] != attacker_color:
+                        return True
+
+        # 目标位置堡垒检测
+        if to_pos in self.fortresses and self.fortresses[to_pos] != attacker_color:
+            return True
+
+        return False
+
+    def pawn_skill(self, piece):
+        """兵技能：放置鹿角"""
+        pos = (piece.row, piece.col)
+        if pos not in self.antlers:
+            self.antlers[pos] = piece.color
+            return True, "鹿角放置成功"
+        return False, "该位置已有鹿角"
+
+    def rook_skill(self, piece):
+        """车技能：建造堡垒"""
+        pos = (piece.row, piece.col)
+        if pos not in self.fortresses:
+            self.fortresses[pos] = piece.color
+            # 堡垒提供防御加成
+            self.resource_system.fertility[piece.row][piece.col] += 20
+            return True, "堡垒建造成功"
+        return False, "该位置已有堡垒"
+
+    def knight_skill(self, piece):
+        """马技能：穿透障碍"""
+        # 马可以穿透鹿角
+        self.valid_moves = []
+        for dr, dc in [(2,1),(2,-1),(-2,1),(-2,-1),(1,2),(1,-2),(-1,2),(-1,-2)]:
+            r, c = piece.row + dr, piece.col + dc
+            if 0 <= r < 8 and 0 <= c < 8:
+                target = self.board[r][c]
+                if not target or target.color != piece.color:
+                    # 马可以穿透鹿角，但仍不能进入有堡垒的敌方格子
+                    if not ( (r, c) in self.fortresses and self.fortresses[(r, c)] != piece.color ):
+                        self.valid_moves.append((r,c))
+        return True, "马技能激活"
+
+    def king_skill(self, piece):
+        """王技能：核心化领土"""
+        pos = (piece.row, piece.col)
+        if pos not in self.core_territories:
+            self.core_territories[pos] = piece.color
+            # 核心领土提供资源加成
+            self.resource_system.fertility[piece.row][piece.col] = min(
+                150, self.resource_system.fertility[piece.row][piece.col] + 50)
+            return True, "领土核心化成功"
+        return False, "该位置已是核心领土"
+
     def handle_click(self, pos):
         if self.game_over:
+            return
+
+        # 先检查是否点击了按钮
+        button_clicked = self.check_button_click(pos)
+        if button_clicked:
+            # 处理按钮点击
+            self.handle_button_action(button_clicked)
             return
 
         # 将屏幕坐标转换为网格坐标
@@ -412,7 +643,7 @@ class Game:
                         self.selected_piece = None
                         self.valid_moves = []
                         return
-                
+
                 self.move_piece(self.selected_piece.row, self.selected_piece.col, row, col)
                 self.selected_piece.selected = False
                 self.selected_piece = None
@@ -432,7 +663,7 @@ class Game:
     def get_valid_moves(self, row, col):
         piece = self.board[row][col]
         moves = []
-        
+
         if piece.type == 'pawn':
             # 兵的特殊移动规则
             direction = 1 if piece.color == 'black' else -1
@@ -449,7 +680,7 @@ class Game:
                     target = self.board[row + direction][col + dc]
                     if target and target.color != piece.color:
                         moves.append((row + direction, col + dc))
-        
+
         elif piece.type == 'rook':
             # 车的移动规则（直线无限距离）
             for dr, dc in [(1,0), (-1,0), (0,1), (0,-1)]:
@@ -463,7 +694,7 @@ class Game:
                         if self.board[r][c].color != piece.color:
                             moves.append((r, c))
                         break
-        
+
         elif piece.type == 'knight':
             # 马的移动规则（L形）
             for dr, dc in [(2,1), (2,-1), (-2,1), (-2,-1), (1,2), (1,-2), (-1,2), (-1,-2)]:
@@ -471,7 +702,7 @@ class Game:
                 if 0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE:
                     if self.board[r][c] is None or self.board[r][c].color != piece.color:
                         moves.append((r, c))
-        
+
         elif piece.type == 'bishop':
             # 象的移动规则（斜线无限距离）
             for dr, dc in [(1,1), (1,-1), (-1,1), (-1,-1)]:
@@ -485,7 +716,7 @@ class Game:
                         if self.board[r][c].color != piece.color:
                             moves.append((r, c))
                         break
-        
+
         elif piece.type == 'queen':
             # 后的移动规则（直线+斜线无限距离）
             for dr, dc in [(1,0), (-1,0), (0,1), (0,-1), (1,1), (1,-1), (-1,1), (-1,-1)]:
@@ -499,7 +730,7 @@ class Game:
                         if self.board[r][c].color != piece.color:
                             moves.append((r, c))
                         break
-        
+
         elif piece.type == 'king':
             # 王的移动规则（单格任意方向）
             for dr in [-1, 0, 1]:
@@ -511,16 +742,27 @@ class Game:
                         if self.board[r][c] is None or self.board[r][c].color != piece.color:
                             moves.append((r, c))
 
-        return moves
+        # 过滤被阻挡的移动
+        valid_moves = []
+        for move in moves:
+            # 马可以穿透鹿角
+            if piece.type == 'knight':
+                if not ( (move[0], move[1]) in self.fortresses and self.fortresses[(move[0], move[1])] != piece.color ):
+                    valid_moves.append(move)
+            else:
+                if not self.is_blocked((row,col), move, piece.color):
+                    valid_moves.append(move)
+
+        return valid_moves
 
     def move_piece(self, from_row, from_col, to_row, to_col):
         # 移动棋子
         piece = self.board[from_row][from_col]
-        
+
         # 如果是特殊棋子移动，消耗资源
         if piece.type in ['knight', 'bishop', 'queen']:
             self.skill_system.cast_skill(piece.type, piece.color)
-        
+
         # 处理目标位置的棋子（吃子）
         target_piece = self.board[to_row][to_col]
         if target_piece:
@@ -529,7 +771,7 @@ class Game:
                 if target_piece in player.pieces:
                     player.pieces.remove(target_piece)
                     break
-        
+
         self.board[to_row][to_col] = piece
         self.board[from_row][from_col] = None
         piece.row = to_row
@@ -545,9 +787,32 @@ class Game:
         # 回合结束时的处理逻辑
         # 更新丰饶度
         self.resource_system.update_fertility(self.board)
+
+        # 更新叛乱值
+        for row in range(8):
+            for col in range(8):
+                # 丰饶度低于50时可能产生叛乱
+                if self.resource_system.fertility[row][col] < 50:
+                    import random
+                    self.resource_system.rebellion[row][col] += random.randint(0, 50 - self.resource_system.fertility[row][col])
+                    # 叛乱值超过100时，该格子变为中立（简化实现）
+                    if self.resource_system.rebellion[row][col] > 100:
+                        piece = self.board[row][col]
+                        if piece:
+                            # 从玩家棋子列表中移除
+                            for player in self.players:
+                                if piece in player.pieces:
+                                    player.pieces.remove(piece)
+                                    break
+                            self.board[row][col] = None
+                            self.resource_system.rebellion[row][col] = 0
+                            print(f"位置({row},{col})发生叛乱，棋子被移除")
+
         # 征税
         current_player = self.get_current_player()
-        self.resource_system.collect_tax(current_player, self.board)
+        # 回合开始时自动增加1点粮草
+        self.resource_system.food[current_player.color] += 1
+        print(f"{current_player.color} 回合开始，获得1点粮草")
 
     def check_game_over(self):
         # 这里需要您实现检查游戏是否结束的逻辑
@@ -576,7 +841,7 @@ class Game:
         self.game_over = False
         self.winner = None
         self.initialize_board()
-        
+
         # 重置资源系统
         self.resource_system = ResourceSystem()
         self.skill_system = SkillSystem(self.resource_system)
