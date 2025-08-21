@@ -17,6 +17,9 @@ GAME_FONT = "fonts/Minecraftia-Regular-1.ttf"
 GAME_BTN_FONT = "fonts/simsun.ttc"
 GRID_SIZE = 8  # 8x8棋盘
 
+# 透明度常量
+BEHIND_OBST_TRANS = 0.6  # 棋子在障碍物下的透明度
+
 # 网格中心点坐标
 POS_GRID_NW_CENTRE = (scl(543), scl(193))  # 左上第一格的中心点
 POS_GRID_SE_CENTRE = (scl(1062), scl(708))  # 右下最后一格的中心点
@@ -238,24 +241,37 @@ class Piece:
         self.col = col  # 列位置
         self.selected = False  # 是否被选中
 
-    def draw(self, screen, images, font):
+    def draw(self, screen, images, font, transparency=1.0):
         # 计算棋子在屏幕上的位置
         x, y = grid_to_screen(self.row, self.col)
 
-        # 如果被选中，绘制高亮效果
+        # 如果被选中，绘制高亮效果（不受透明度影响）
         if self.selected:
             highlight_rect = images['highlight'].get_rect(center=(x, y))
             screen.blit(images['highlight'], highlight_rect)
 
         # 绘制棋子（优先使用专用贴图）
         piece_img = images.get(f'piece_{self.color}_{self.type}', images[f'piece_{self.color}'])
+        
+        # 应用透明度
+        if transparency < 1.0:
+            # 创建带有透明度的surface
+            transparent_surface = pygame.Surface(piece_img.get_size(), pygame.SRCALPHA)
+            # 将原图像绘制到临时surface上
+            transparent_surface.blit(piece_img, (0, 0))
+            # 设置整体透明度
+            transparent_surface.set_alpha(int(255 * transparency))
+            piece_img = transparent_surface
+
         piece_rect = piece_img.get_rect(center=(x, y))
         screen.blit(piece_img, piece_rect)
 
-        # 绘制棋子ID
-        text = font.render(str(self.id), True, BLACK if self.color == 'white' else WHITE)
-        text_rect = text.get_rect(center=(x, y))
-        screen.blit(text, text_rect)
+        # 绘制棋子ID（也应用透明度）
+        text_surface = font.render(str(self.id), True, BLACK if self.color == 'white' else WHITE)
+        if transparency < 1.0:
+            text_surface.set_alpha(int(255 * transparency))
+        text_rect = text_surface.get_rect(center=(x, y))
+        screen.blit(text_surface, text_rect)
 
     def is_clicked(self, pos):
         # 检查点击位置是否在棋子上
@@ -387,13 +403,19 @@ class Game:
                 move_rect = self.images['valid_move'].get_rect(center=(x, y))
                 screen.blit(self.images['valid_move'], move_rect)
 
-        # 绘制棋子
+        # 首先绘制所有棋子（可能有透明度）
         for row in range(GRID_SIZE):
             for col in range(GRID_SIZE):
                 if self.board[row][col]:
-                    self.board[row][col].draw(screen, self.images, self.font)
+                    piece = self.board[row][col]
+                    # 检查棋子是否在障碍物下
+                    transparency = 1.0  # 默认不透明
+                    if (piece.row, piece.col) in self.antlers or (piece.row, piece.col) in self.fortresses:
+                        transparency = BEHIND_OBST_TRANS
+                    
+                    piece.draw(screen, self.images, self.font, transparency)
 
-        # 绘制障碍物
+        # 然后绘制障碍物（在棋子之上绘制）
         # 绘制鹿角障碍物
         for (row, col), color in self.antlers.items():
             x, y = grid_to_screen(row, col)
@@ -401,7 +423,7 @@ class Game:
             antler_rect = antler_img.get_rect(center=(x, y))
             screen.blit(antler_img, antler_rect)
 
-        # 新增：绘制堡垒障碍物
+        # 绘制堡垒障碍物
         for (row, col), color in self.fortresses.items():
             x, y = grid_to_screen(row, col)
             fortress_img = self.images.get(f'obstacle_{color}_fortress')
@@ -429,38 +451,40 @@ class Game:
         font_small = pygame.font.Font(GAME_FONT, scl(28))
 
         # 计算文本起始位置
-        x = POS_INFO_NW[0] + 10
-        y = POS_INFO_NW[1] + 10
+        x = POS_INFO_NW[0] + scl(20)
+        y = POS_INFO_NW[1] + scl(20)
 
         # 绘制当前玩家信息
         current_player = self.get_current_player()
-        text = font_large.render(f"Current Player: {current_player.color}", True, WHITE)
+        text = font_large.render(f"Player: {current_player.color}", True, WHITE)
         screen.blit(text, (x, y))
-        y += 40
+        y += scl(70)
 
         # 绘制玩家资源信息
         for player in self.players:
-            food_text = font_small.render(f"{player.color}: {len(player.pieces)} pieces, Food: {self.resource_system.food[player.color]}", True, WHITE)
+            food_text = font_small.render(f"{player.color}: Food: {self.resource_system.food[player.color]}", True, WHITE)
+            # food_text = font_small.render(f"{player.color}: {len(player.pieces)} pieces, Food: {self.resource_system.food[player.color]}", True, WHITE)
             screen.blit(food_text, (x, y))
-            y += 30
+            y += scl(40)
 
-        y += 10  # 增加一些间距
+        y += scl(30)  # 增加一些间距
 
         # 绘制当前阶段信息
         phase_text = font_small.render(f"Phase: {self.phase}", True, WHITE)
         screen.blit(phase_text, (x, y))
-        y += 30
+        y += scl(60)
         
         # 绘制玩家完成状态
         for i, player in enumerate(self.players):
-            move_status = "✓" if self.player_move_completed[i] else "○"
-            action_status = "✓" if self.player_action_completed[i] else "○"
+            move_status = "ok" if self.player_move_completed[i] else "○"
+            action_status = "ok" if self.player_action_completed[i] else "○"
             status_text = font_small.render(
                 f"{player.color}: Move {move_status} | Action {action_status}", 
                 True, WHITE
             )
             screen.blit(status_text, (x, y))
-            y += 30
+            y += scl(40)
+        y += scl(20)
 
         # 绘制操作说明
         instructions = [
@@ -472,14 +496,14 @@ class Game:
         for instruction in instructions:
             text = font_small.render(instruction, True, WHITE)
             screen.blit(text, (x, y))
-            y += 30
+            y += scl(40)
 
         # 如果游戏结束，显示获胜者
         if self.game_over:
-            y += 10  # 增加一些间距
+            y += scl(20)  # 增加一些间距
             winner_text = font_large.render(f"Game Over!", True, WHITE)
             screen.blit(winner_text, (x, y))
-            y += 40
+            y += scl(70)
             winner_text = font_large.render(f"Winner: {self.winner}", True, WHITE)
             screen.blit(winner_text, (x, y))
 
@@ -621,14 +645,26 @@ class Game:
         """检查移动路径是否被障碍物阻挡"""
         from_row, from_col = from_pos
         to_row, to_col = to_pos
-
+        
+        # 如果是马，可以跳过鹿角（但不能跳过堡垒）
+        piece = self.board[from_row][from_col]
+        if piece and piece.type == 'knight':
+            # 马可以跳过鹿角，但不能进入敌方堡垒
+            if (to_row, to_col) in self.fortresses and self.fortresses[(to_row, to_col)] != attacker_color:
+                return True
+            return False
+        
         # 直线移动检测
         if from_row == to_row or from_col == to_col:
             if from_row == to_row:  # 水平移动
                 step = 1 if to_col > from_col else -1
                 for col in range(from_col + step, to_col, step):
                     pos = (from_row, col)
+                    # 敌方鹿角阻挡
                     if pos in self.antlers and self.antlers[pos] != attacker_color:
+                        return True
+                    # 敌方堡垒阻挡
+                    if pos in self.fortresses and self.fortresses[pos] != attacker_color:
                         return True
             else:  # 垂直移动
                 step = 1 if to_row > from_row else -1
@@ -636,55 +672,176 @@ class Game:
                     pos = (row, from_col)
                     if pos in self.antlers and self.antlers[pos] != attacker_color:
                         return True
-
+                    if pos in self.fortresses and self.fortresses[pos] != attacker_color:
+                        return True
+        
+        # 斜线移动检测
+        else:
+            row_step = 1 if to_row > from_row else -1
+            col_step = 1 if to_col > from_col else -1
+            steps = abs(to_row - from_row)
+            for i in range(1, steps):
+                r = from_row + i * row_step
+                c = from_col + i * col_step
+                pos = (r, c)
+                if pos in self.antlers and self.antlers[pos] != attacker_color:
+                    return True
+                if pos in self.fortresses and self.fortresses[pos] != attacker_color:
+                    return True
+        
         # 目标位置堡垒检测
         if to_pos in self.fortresses and self.fortresses[to_pos] != attacker_color:
             return True
-
+            
         return False
+
+    def move_piece(self, from_row, from_col, to_row, to_col):
+        # 移动棋子
+        piece = self.board[from_row][from_col]
+        
+        # 检查目标位置是否有敌方鹿角
+        target_pos = (to_row, to_col)
+        if target_pos in self.antlers and self.antlers[target_pos] != piece.color:
+            # 吃掉鹿角（不移位，只移除鹿角）
+            del self.antlers[target_pos]
+            print(f"{piece.color} 吃掉了敌方鹿角")
+            return  # 不移位，直接返回
+            
+        # 检查目标位置是否有敌方堡垒
+        if target_pos in self.fortresses and self.fortresses[target_pos] != piece.color:
+            print(f"{piece.color} 无法移动到敌方堡垒")
+            return  # 无法移动到敌方堡垒
+        
+        # 如果是特殊棋子移动，消耗资源
+        if piece.type in ['knight', 'bishop', 'queen']:
+            self.skill_system.cast_skill(piece.type, piece.color)
+
+        # 处理目标位置的棋子（吃子）
+        target_piece = self.board[to_row][to_col]
+        if target_piece:
+            # 从玩家的棋子列表中移除被吃的棋子
+            for player in self.players:
+                if target_piece in player.pieces:
+                    player.pieces.remove(target_piece)
+                    break
+
+        self.board[to_row][to_col] = piece
+        self.board[from_row][from_col] = None
+        piece.row = to_row
+        piece.col = to_col
+
+    def get_valid_moves(self, row, col):
+        piece = self.board[row][col]
+        moves = []
+
+        if piece.type == 'pawn':
+            # 兵的特殊移动规则
+            direction = 1 if piece.color == 'black' else -1
+            # 基本前进
+            if 0 <= row + direction < GRID_SIZE and self.board[row + direction][col] is None:
+                moves.append((row + direction, col))
+                # 如果是初始位置，可以前进两格
+                if (piece.color == 'black' and row == 1) or (piece.color == 'white' and row == 6):
+                    if self.board[row + 2*direction][col] is None:
+                        moves.append((row + 2*direction, col))
+            # 吃子斜进
+            for dc in [-1, 1]:
+                if 0 <= col + dc < GRID_SIZE and 0 <= row + direction < GRID_SIZE:
+                    target = self.board[row + direction][col + dc]
+                    if target and target.color != piece.color:
+                        moves.append((row + direction, col + dc))
+
+        elif piece.type == 'rook':
+            # 车的移动规则（直线无限距离）
+            for dr, dc in [(1,0), (-1,0), (0,1), (0,-1)]:
+                for i in range(1, GRID_SIZE):
+                    r, c = row + dr*i, col + dc*i
+                    if not (0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE):
+                        break
+                    if self.board[r][c] is None:
+                        moves.append((r, c))
+                    else:
+                        if self.board[r][c].color != piece.color:
+                            moves.append((r, c))
+                        break
+
+        elif piece.type == 'knight':
+            # 马的移动规则（L形）
+            for dr, dc in [(2,1), (2,-1), (-2,1), (-2,-1), (1,2), (1,-2), (-1,2), (-1,-2)]:
+                r, c = row + dr, col + dc
+                if 0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE:
+                    if self.board[r][c] is None or self.board[r][c].color != piece.color:
+                        moves.append((r, c))
+
+        elif piece.type == 'bishop':
+            # 象的移动规则（斜线无限距离）
+            for dr, dc in [(1,1), (1,-1), (-1,1), (-1,-1)]:
+                for i in range(1, GRID_SIZE):
+                    r, c = row + dr*i, col + dc*i
+                    if not (0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE):
+                        break
+                    if self.board[r][c] is None:
+                        moves.append((r, c))
+                    else:
+                        if self.board[r][c].color != piece.color:
+                            moves.append((r, c))
+                        break
+
+        elif piece.type == 'queen':
+            # 后的移动规则（直线+斜线无限距离）
+            for dr, dc in [(1,0), (-1,0), (0,1), (0,-1), (1,1), (1,-1), (-1,1), (-1,-1)]:
+                for i in range(1, GRID_SIZE):
+                    r, c = row + dr*i, col + dc*i
+                    if not (0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE):
+                        break
+                    if self.board[r][c] is None:
+                        moves.append((r, c))
+                    else:
+                        if self.board[r][c].color != piece.color:
+                            moves.append((r, c))
+                        break
+
+        elif piece.type == 'king':
+            # 王的移动规则（单格任意方向）
+            for dr in [-1, 0, 1]:
+                for dc in [-1, 0, 1]:
+                    if dr == 0 and dc == 0:
+                        continue
+                    r, c = row + dr, col + dc
+                    if 0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE:
+                        if self.board[r][c] is None or self.board[r][c].color != piece.color:
+                            moves.append((r, c))
+
+        # 过滤被阻挡的移动
+        valid_moves = []
+        for move in moves:
+            # 检查目标位置是否有敌方堡垒
+            if move in self.fortresses and self.fortresses[move] != piece.color:
+                continue  # 跳过敌方堡垒
+                
+            # 检查移动路径是否被阻挡
+            if not self.is_blocked((row, col), move, piece.color):
+                valid_moves.append(move)
+                
+        return valid_moves
 
     def pawn_skill(self, piece):
         """兵技能：放置鹿角"""
         pos = (piece.row, piece.col)
-        if pos not in self.antlers:
+        if pos not in self.antlers and pos not in self.fortresses:
             self.antlers[pos] = piece.color
             return True, "鹿角放置成功"
-        return False, "该位置已有鹿角"
+        return False, "该位置已有障碍物"
 
     def rook_skill(self, piece):
         """车技能：建造堡垒"""
         pos = (piece.row, piece.col)
-        if pos not in self.fortresses:
+        if pos not in self.fortresses and pos not in self.antlers:
             self.fortresses[pos] = piece.color
             # 堡垒提供防御加成
             self.resource_system.fertility[piece.row][piece.col] += 20
             return True, "堡垒建造成功"
-        return False, "该位置已有堡垒"
-
-    def knight_skill(self, piece):
-        """马技能：穿透障碍"""
-        # 马可以穿透鹿角
-        self.valid_moves = []
-        for dr, dc in [(2,1),(2,-1),(-2,1),(-2,-1),(1,2),(1,-2),(-1,2),(-1,-2)]:
-            r, c = piece.row + dr, piece.col + dc
-            if 0 <= r < 8 and 0 <= c < 8:
-                target = self.board[r][c]
-                if not target or target.color != piece.color:
-                    # 马可以穿透鹿角，但仍不能进入有堡垒的敌方格子
-                    if not ( (r, c) in self.fortresses and self.fortresses[(r, c)] != piece.color ):
-                        self.valid_moves.append((r,c))
-        return True, "马技能激活"
-
-    def king_skill(self, piece):
-        """王技能：核心化领土"""
-        pos = (piece.row, piece.col)
-        if pos not in self.core_territories:
-            self.core_territories[pos] = piece.color
-            # 核心领土提供资源加成
-            self.resource_system.fertility[piece.row][piece.col] = min(
-                150, self.resource_system.fertility[piece.row][piece.col] + 50)
-            return True, "领土核心化成功"
-        return False, "该位置已是核心领土"
+        return False, "该位置已有障碍物"
 
     def handle_click(self, pos):
         if self.game_over:
@@ -788,123 +945,6 @@ class Game:
                 self.selected_piece.selected = False
                 self.selected_piece = None
                 self.valid_moves = []
-
-    def get_valid_moves(self, row, col):
-        piece = self.board[row][col]
-        moves = []
-
-        if piece.type == 'pawn':
-            # 兵的特殊移动规则
-            direction = 1 if piece.color == 'black' else -1
-            # 基本前进
-            if 0 <= row + direction < GRID_SIZE and self.board[row + direction][col] is None:
-                moves.append((row + direction, col))
-                # 如果是初始位置，可以前进两格
-                if (piece.color == 'black' and row == 1) or (piece.color == 'white' and row == 6):
-                    if self.board[row + 2*direction][col] is None:
-                        moves.append((row + 2*direction, col))
-            # 吃子斜进
-            for dc in [-1, 1]:
-                if 0 <= col + dc < GRID_SIZE and 0 <= row + direction < GRID_SIZE:
-                    target = self.board[row + direction][col + dc]
-                    if target and target.color != piece.color:
-                        moves.append((row + direction, col + dc))
-
-        elif piece.type == 'rook':
-            # 车的移动规则（直线无限距离）
-            for dr, dc in [(1,0), (-1,0), (0,1), (0,-1)]:
-                for i in range(1, GRID_SIZE):
-                    r, c = row + dr*i, col + dc*i
-                    if not (0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE):
-                        break
-                    if self.board[r][c] is None:
-                        moves.append((r, c))
-                    else:
-                        if self.board[r][c].color != piece.color:
-                            moves.append((r, c))
-                        break
-
-        elif piece.type == 'knight':
-            # 马的移动规则（L形）
-            for dr, dc in [(2,1), (2,-1), (-2,1), (-2,-1), (1,2), (1,-2), (-1,2), (-1,-2)]:
-                r, c = row + dr, col + dc
-                if 0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE:
-                    if self.board[r][c] is None or self.board[r][c].color != piece.color:
-                        moves.append((r, c))
-
-        elif piece.type == 'bishop':
-            # 象的移动规则（斜线无限距离）
-            for dr, dc in [(1,1), (1,-1), (-1,1), (-1,-1)]:
-                for i in range(1, GRID_SIZE):
-                    r, c = row + dr*i, col + dc*i
-                    if not (0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE):
-                        break
-                    if self.board[r][c] is None:
-                        moves.append((r, c))
-                    else:
-                        if self.board[r][c].color != piece.color:
-                            moves.append((r, c))
-                        break
-
-        elif piece.type == 'queen':
-            # 后的移动规则（直线+斜线无限距离）
-            for dr, dc in [(1,0), (-1,0), (0,1), (0,-1), (1,1), (1,-1), (-1,1), (-1,-1)]:
-                for i in range(1, GRID_SIZE):
-                    r, c = row + dr*i, col + dc*i
-                    if not (0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE):
-                        break
-                    if self.board[r][c] is None:
-                        moves.append((r, c))
-                    else:
-                        if self.board[r][c].color != piece.color:
-                            moves.append((r, c))
-                        break
-
-        elif piece.type == 'king':
-            # 王的移动规则（单格任意方向）
-            for dr in [-1, 0, 1]:
-                for dc in [-1, 0, 1]:
-                    if dr == 0 and dc == 0:
-                        continue
-                    r, c = row + dr, col + dc
-                    if 0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE:
-                        if self.board[r][c] is None or self.board[r][c].color != piece.color:
-                            moves.append((r, c))
-
-        # 过滤被阻挡的移动
-        valid_moves = []
-        for move in moves:
-            # 马可以穿透鹿角
-            if piece.type == 'knight':
-                if not ( (move[0], move[1]) in self.fortresses and self.fortresses[(move[0], move[1])] != piece.color ):
-                    valid_moves.append(move)
-            else:
-                if not self.is_blocked((row,col), move, piece.color):
-                    valid_moves.append(move)
-
-        return valid_moves
-
-    def move_piece(self, from_row, from_col, to_row, to_col):
-        # 移动棋子
-        piece = self.board[from_row][from_col]
-
-        # 如果是特殊棋子移动，消耗资源
-        if piece.type in ['knight', 'bishop', 'queen']:
-            self.skill_system.cast_skill(piece.type, piece.color)
-
-        # 处理目标位置的棋子（吃子）
-        target_piece = self.board[to_row][to_col]
-        if target_piece:
-            # 从玩家的棋子列表中移除被吃的棋子
-            for player in self.players:
-                if target_piece in player.pieces:
-                    player.pieces.remove(target_piece)
-                    break
-
-        self.board[to_row][to_col] = piece
-        self.board[from_row][from_col] = None
-        piece.row = to_row
-        piece.col = to_col
 
     def switch_player(self):
         # 切换玩家
