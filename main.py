@@ -3,9 +3,7 @@ import sys
 import os
 import math
 from collections import defaultdict
-
-# 初始化pygame
-pygame.init()
+from enum import Enum
 
 # 游戏常量
 SCREEN_SCALE = 0.7
@@ -16,6 +14,12 @@ SCREEN_HEIGHT = scl(900)
 GAME_FONT = "fonts/Minecraftia-Regular-1.ttf"
 GAME_BTN_FONT = "fonts/simsun.ttc"
 GRID_SIZE = 8  # 8x8棋盘
+
+# 游戏参数
+INITIAL_FOOD = 20
+INITIAL_FERTILITY = 100
+FARM_MAX_IN_A_TURN = 5
+PIECE_MOVE_MAX = 1
 
 # 透明度常量
 BEHIND_OBST_TRANS = 0.6  # 棋子在障碍物下的透明度
@@ -44,16 +48,34 @@ YELLOW = (255, 255, 0)
 GRAY = (200, 200, 200)
 LIGHT_BROWN = (222, 184, 135)
 DARK_BROWN = (139, 69, 19)
+HIGHLIGHT_GREEN = (0, 255, 0, 128)
+HIGHLIGHT_RED = (255, 0, 0, 128)
 
 # 创建游戏窗口
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Custom Chess Game")
 
+
+# 游戏阶段枚举
+class GamePhase(Enum):
+    ACTION = "action"  # 行动阶段
+    MOVE = "move"  # 走子阶段
+
+
+# 管理视图枚举
+class ManagementView(Enum):
+    NONE = "none"
+    TAX = "tax"
+    FARM = "farm"
+
+
 # 游戏事件定义
 class GameEvent:
     SKILL_CAST = 1  # 技能释放
-    TAX_COLLECT = 2 # 征税
-    TURN_END = 3    # 回合结束
+    TAX_COLLECT = 2  # 征税
+    TURN_END = 3  # 回合结束
+    PHASE_CHANGE = 4  # 阶段变化
+
 
 # 事件处理器
 class EventHandler:
@@ -67,43 +89,79 @@ class EventHandler:
         for callback in self.listeners[event_type]:
             callback(data)
 
+
 # 资源系统
 class ResourceSystem:
     def __init__(self):
-        self.food = {'black': 600, 'white': 600}  # 初始粮草值设为600
-        self.fertility = [[100 for _ in range(8)] for _ in range(8)]  # 丰饶度初始化为100
-        # 添加叛乱值
-        self.rebellion = [[0 for _ in range(8)] for _ in range(8)]
+        self.food = {'black': INITIAL_FOOD, 'white': INITIAL_FOOD}
+        self.fertility = [[INITIAL_FERTILITY for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+        self.territory = [[None for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]  # 领土控制
+        self.tax_grid = [[False for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]  # 税收标记
+        self.farm_grid = [[0 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]  # 屯田次数
 
     def update_fertility(self, board):
-        # 每回合丰饶度衰减/恢复
-        for row in range(8):
-            for col in range(8):
+        # 行动阶段开始前，任何格子上如果有棋子，则丰饶度-5
+        for row in range(GRID_SIZE):
+            for col in range(GRID_SIZE):
                 if board[row][col]:
-                    self.fertility[row][col] = max(0, self.fertility[row][col] - 10)
-                else:
-                    self.fertility[row][col] = min(100, self.fertility[row][col] + 5)
+                    self.fertility[row][col] = max(0, self.fertility[row][col] - 5)
 
-    def collect_tax(self, player, board):
-        # 征税逻辑：根据控制的格子丰饶度获得粮草
+    def collect_tax(self, player_color):
+        # 征税逻辑：根据标记的税收格子获得粮草
         total_tax = 0
-        for row in range(8):
-            for col in range(8):
-                piece = board[row][col]
-                if piece and piece.color == player.color:
-                    total_tax += self.fertility[row][col] // 10
-        self.food[player.color] += total_tax
+        for row in range(GRID_SIZE):
+            for col in range(GRID_SIZE):
+                if self.tax_grid[row][col] and self.territory[row][col] == player_color:
+                    tax_amount = self.fertility[row][col] // 10
+                    total_tax += tax_amount
+                    self.fertility[row][col] = max(0, self.fertility[row][col] - 10)
+
+        self.food[player_color] += total_tax
         return total_tax
+
+    def implement_farming(self, player_color):
+        # 实施屯田计划
+        total_farm_cost = 0
+        for row in range(GRID_SIZE):
+            for col in range(GRID_SIZE):
+                farm_times = self.farm_grid[row][col]
+                if farm_times > 0 and self.territory[row][col] == player_color:
+                    farm_cost = farm_times * 10
+                    if self.food[player_color] >= farm_cost:
+                        self.food[player_color] -= farm_cost
+                        self.fertility[row][col] += farm_times * 5
+                        total_farm_cost += farm_cost
+                    else:
+                        # 粮草不足，调整屯田次数
+                        max_affordable = self.food[player_color] // 10
+                        actual_times = min(farm_times, max_affordable)
+                        actual_cost = actual_times * 10
+                        self.food[player_color] -= actual_cost
+                        self.fertility[row][col] += actual_times * 5
+                        total_farm_cost += actual_cost
+                        self.farm_grid[row][col] = actual_times
+
+        return total_farm_cost
+
+    def update_territory(self, row, col, color):
+        # 更新领土控制
+        self.territory[row][col] = color
+
+    def reset_management_grids(self):
+        # 重置管理网格
+        self.tax_grid = [[False for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+        self.farm_grid = [[0 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+
 
 # 技能系统
 class SkillSystem:
     SKILL_COSTS = {
-        'pawn': 10,    # 兵技能消耗
+        'pawn': 10,  # 兵技能消耗
         'knight': 10,  # 马技能消耗
-        'rook': 10,    # 车技能消耗
+        'rook': 10,  # 车技能消耗
         'bishop': 10,  # 象技能消耗
-        'queen': 50,   # 后召唤消耗
-        'king': 10     # 王技能消耗
+        'queen': 50,  # 后召唤消耗
+        'king': 10  # 王技能消耗
     }
 
     def __init__(self, resource_system):
@@ -117,6 +175,7 @@ class SkillSystem:
             self.resource_system.food[player_color] -= self.SKILL_COSTS[piece_type]
             return True
         return False
+
 
 # 加载图片
 def load_images():
@@ -158,8 +217,10 @@ def load_images():
         # 加载特定类型棋子
         for ptype in piece_types:
             try:
-                images[f'piece_{color}_{ptype}'] = pygame.image.load(f"images/piece_{color}_{ptype}.png").convert_alpha()
-                images[f'piece_{color}_{ptype}'] = pygame.transform.scale(images[f'piece_{color}_{ptype}'], (PIECE_SIZE, PIECE_SIZE))
+                images[f'piece_{color}_{ptype}'] = pygame.image.load(
+                    f"images/piece_{color}_{ptype}.png").convert_alpha()
+                images[f'piece_{color}_{ptype}'] = pygame.transform.scale(images[f'piece_{color}_{ptype}'],
+                                                                          (PIECE_SIZE, PIECE_SIZE))
             except:
                 print(f"Cannot load piece_{color}_{ptype}.png, using default piece")
                 # 如果没有专用贴图，将使用通用颜色贴图
@@ -167,19 +228,24 @@ def load_images():
     # 加载障碍物贴图
     for color in piece_colors:
         try:
-            images[f'obstacle_{color}_lujiao'] = pygame.image.load(f"images/obstacle_{color}_lujiao.png").convert_alpha()
-            images[f'obstacle_{color}_lujiao'] = pygame.transform.scale(images[f'obstacle_{color}_lujiao'], (PIECE_SIZE, PIECE_SIZE))
+            images[f'obstacle_{color}_lujiao'] = pygame.image.load(
+                f"images/obstacle_{color}_lujiao.png").convert_alpha()
+            images[f'obstacle_{color}_lujiao'] = pygame.transform.scale(images[f'obstacle_{color}_lujiao'],
+                                                                        (PIECE_SIZE, PIECE_SIZE))
         except:
             print(f"Cannot load obstacle_{color}_lujiao.png, using default indicator")
             images[f'obstacle_{color}_lujiao'] = pygame.Surface((PIECE_SIZE, PIECE_SIZE), pygame.SRCALPHA)
             # 使用颜色圆圈作为默认显示
             circle_color = BLACK if color == 'black' else WHITE
-            pygame.draw.circle(images[f'obstacle_{color}_lujiao'], circle_color, (PIECE_SIZE // 2, PIECE_SIZE // 2), PIECE_SIZE // 3)
+            pygame.draw.circle(images[f'obstacle_{color}_lujiao'], circle_color, (PIECE_SIZE // 2, PIECE_SIZE // 2),
+                               PIECE_SIZE // 3)
 
         # 新增：加载堡垒贴图
         try:
-            images[f'obstacle_{color}_fortress'] = pygame.image.load(f"images/obstacle_{color}_fortress.png").convert_alpha()
-            images[f'obstacle_{color}_fortress'] = pygame.transform.scale(images[f'obstacle_{color}_fortress'], (PIECE_SIZE, PIECE_SIZE))
+            images[f'obstacle_{color}_fortress'] = pygame.image.load(
+                f"images/obstacle_{color}_fortress.png").convert_alpha()
+            images[f'obstacle_{color}_fortress'] = pygame.transform.scale(images[f'obstacle_{color}_fortress'],
+                                                                          (PIECE_SIZE, PIECE_SIZE))
         except:
             print(f"Cannot load obstacle_{color}_fortress.png, using default indicator")
             images[f'obstacle_{color}_fortress'] = pygame.Surface((PIECE_SIZE, PIECE_SIZE), pygame.SRCALPHA)
@@ -235,11 +301,12 @@ def screen_to_grid(x, y):
 class Piece:
     def __init__(self, piece_id, piece_type, color, row, col):
         self.id = piece_id  # 棋子唯一标识
-        self.type = piece_type  # 棋子类型（由您定义）
+        self.type = piece_type  # 棋子类型
         self.color = color  # 棋子颜色
         self.row = row  # 行位置
         self.col = col  # 列位置
         self.selected = False  # 是否被选中
+        self.moved_this_turn = False  # 本回合是否已移动
 
     def draw(self, screen, images, font, transparency=1.0):
         # 计算棋子在屏幕上的位置
@@ -252,7 +319,7 @@ class Piece:
 
         # 绘制棋子（优先使用专用贴图）
         piece_img = images.get(f'piece_{self.color}_{self.type}', images[f'piece_{self.color}'])
-        
+
         # 应用透明度
         if transparency < 1.0:
             # 创建带有透明度的surface
@@ -279,6 +346,10 @@ class Piece:
         distance = math.sqrt((pos[0] - piece_x) ** 2 + (pos[1] - piece_y) ** 2)
         return distance < PIECE_SIZE // 2
 
+    def reset_turn_state(self):
+        # 重置回合状态
+        self.moved_this_turn = False
+
 
 # 玩家类
 class Player:
@@ -286,11 +357,11 @@ class Player:
         self.color = color
         self.pieces = []  # 玩家的棋子列表
         self.piece_count = piece_count
+        self.moves_this_turn = 0  # 本回合移动次数
         self.initialize_pieces()
 
     def initialize_pieces(self):
         # 根据玩家颜色初始化棋子位置
-        # 这里只是一个示例，您需要根据您的游戏规则来设置
         if self.color == 'black':
             # 黑方初始布局（棋盘下方）
             self.pieces = [
@@ -302,7 +373,7 @@ class Player:
                 Piece(6, 'bishop', 'black', 0, 5),
                 Piece(7, 'knight', 'black', 0, 6),
                 Piece(8, 'rook', 'black', 0, 7),
-                *[Piece(9+i, 'pawn', 'black', 1, i) for i in range(8)]
+                *[Piece(9 + i, 'pawn', 'black', 1, i) for i in range(8)]
             ]
         elif self.color == 'white':
             # 白方初始布局（棋盘上方）
@@ -315,21 +386,27 @@ class Player:
                 Piece(6, 'bishop', 'white', 7, 5),
                 Piece(7, 'knight', 'white', 7, 6),
                 Piece(8, 'rook', 'white', 7, 7),
-                *[Piece(9+i, 'pawn', 'white', 6, i) for i in range(8)]
+                *[Piece(9 + i, 'pawn', 'white', 6, i) for i in range(8)]
             ]
+
+    def reset_turn_state(self):
+        # 重置回合状态
+        self.moves_this_turn = 0
+        for piece in self.pieces:
+            piece.reset_turn_state()
 
 
 # 游戏类
 class Game:
     BUTTONS = {
-        'skill': {
-            'name': '开大',
-            'pos': [scl(50), scl(50)],  # 调整到合适位置
+        'tax': {
+            'name': '税收',
+            'pos': [scl(50), scl(50)],
             'size': [scl(80), scl(40)],
             'anchor': 'NW'
         },
-        'tax': {
-            'name': '征税',
+        'farm': {
+            'name': '屯田',
             'pos': [scl(50), scl(100)],
             'size': [scl(80), scl(40)],
             'anchor': 'NW'
@@ -343,10 +420,34 @@ class Game:
     }
 
     def __init__(self):
+        # 初始化pygame字体模块
+        pygame.font.init()
+        # 尝试加载字体，如果失败则使用系统默认字体
+        try:
+            self.font = pygame.font.Font(GAME_FONT, scl(24))
+        except pygame.error:
+            print(f"无法加载字体文件 {GAME_FONT}，使用系统默认字体")
+            self.font = pygame.font.Font(None, scl(24))
+        try:
+            self.title_font = pygame.font.Font(GAME_FONT, scl(38))
+        except pygame.error:
+            print(f"无法加载字体文件 {GAME_FONT}，使用系统默认字体")
+            self.title_font = pygame.font.Font(None, scl(38))
+        try:
+            self.button_font = pygame.font.Font(GAME_BTN_FONT, scl(20))
+        except pygame.error:
+            print(f"无法加载字体文件 {GAME_BTN_FONT}，使用系统默认字体")
+            self.button_font = pygame.font.Font(None, scl(20))
+
         self.images = load_images()
-        self.font = pygame.font.Font(GAME_FONT, scl(24))
-        self.title_font = pygame.font.Font(GAME_FONT, scl(38))
-        self.button_font = pygame.font.Font(GAME_BTN_FONT, scl(20))
+
+        # 添加资源系统、技能系统和事件处理器
+        self.resource_system = ResourceSystem()
+        self.skill_system = SkillSystem(self.resource_system)
+        self.event_handler = EventHandler()
+        self.event_handler.add_listener(GameEvent.TURN_END, self.on_turn_end)
+        self.event_handler.add_listener(GameEvent.PHASE_CHANGE, self.on_phase_change)
+
         self.players = [
             Player('black', 8),
             Player('white', 8)
@@ -357,37 +458,29 @@ class Game:
         self.current_player_idx = 0  # 当前玩家索引
         self.game_over = False
         self.winner = None
+        self.phase = GamePhase.ACTION  # 初始阶段为行动阶段
+        self.management_view = ManagementView.NONE  # 管理视图
         self.initialize_board()
 
-        # 添加资源系统、技能系统和事件处理器
-        self.resource_system = ResourceSystem()
-        self.skill_system = SkillSystem(self.resource_system)
-        self.event_handler = EventHandler()
-        self.event_handler.add_listener(GameEvent.TURN_END, self.on_turn_end)
-
-        # 添加按钮状态
         self.buttons = self.BUTTONS.copy()
+
         # 添加技能相关属性
         self.pawn_abilities = {}  # 存储兵的鹿角技能效果
         self.rook_fortresses = {}  # 存储车的堡垒技能效果
         self.king_cores = {}  # 存储王的核心化领土效果
-        
+
         # 添加障碍物系统
         self.antlers = {}  # 鹿角位置 {(row,col): owner_color}
         self.fortresses = {}  # 堡垒位置 {(row,col): owner_color}
         self.core_territories = {}  # 核心领土 {(row,col): owner_color}
-        
-        # 添加阶段状态：move(走子阶段) 和 action(行动阶段)
-        self.phase = "move"
-        # 跟踪每个玩家是否完成走子和行动
-        self.player_move_completed = [False, False]  # 跟踪每个玩家是否完成走子
-        self.player_action_completed = [False, False]  # 跟踪每个玩家是否完成行动
 
     def initialize_board(self):
         # 初始化棋盘，将玩家的棋子放置到棋盘上
         for player in self.players:
             for piece in player.pieces:
                 self.board[piece.row][piece.col] = piece
+                # 初始化领土控制
+                self.resource_system.update_territory(piece.row, piece.col, player.color)
 
     def get_current_player(self):
         return self.players[self.current_player_idx]
@@ -396,8 +489,12 @@ class Game:
         # 绘制棋盘背景
         screen.blit(self.images['board'], (0, 0))
 
-        # 只在走子阶段绘制有效移动位置
-        if self.phase == "move":
+        # 绘制管理视图的标记（如果有）
+        if self.management_view != ManagementView.NONE:
+            self.draw_management_marks(screen)
+
+        # 绘制有效移动位置（只在走子阶段且选中棋子时）
+        if self.phase == GamePhase.MOVE and self.selected_piece:
             for row, col in self.valid_moves:
                 x, y = grid_to_screen(row, col)
                 move_rect = self.images['valid_move'].get_rect(center=(x, y))
@@ -412,7 +509,7 @@ class Game:
                     transparency = 1.0  # 默认不透明
                     if (piece.row, piece.col) in self.antlers or (piece.row, piece.col) in self.fortresses:
                         transparency = BEHIND_OBST_TRANS
-                    
+
                     piece.draw(screen, self.images, self.font, transparency)
 
         # 然后绘制障碍物（在棋子之上绘制）
@@ -436,15 +533,76 @@ class Game:
         # 绘制游戏信息
         self.draw_game_info(screen)
 
+        # 绘制管理视图说明（如果有）
+        if self.management_view != ManagementView.NONE:
+            self.draw_management_instructions(screen)
+
+    def draw_management_marks(self, screen):
+        # 绘制管理视图的标记
+        for row in range(GRID_SIZE):
+            for col in range(GRID_SIZE):
+                x, y = grid_to_screen(row, col)
+
+                if self.management_view == ManagementView.TAX:
+                    # 绘制税收标记
+                    if self.resource_system.tax_grid[row][col]:
+                        mark_surface = pygame.Surface((PIECE_SIZE // 2, PIECE_SIZE // 2), pygame.SRCALPHA)
+                        pygame.draw.circle(mark_surface, HIGHLIGHT_GREEN,
+                                           (PIECE_SIZE // 4, PIECE_SIZE // 4), PIECE_SIZE // 4)
+                        mark_rect = mark_surface.get_rect(center=(x, y))
+                        screen.blit(mark_surface, mark_rect)
+
+                elif self.management_view == ManagementView.FARM:
+                    # 绘制屯田标记
+                    farm_times = self.resource_system.farm_grid[row][col]
+                    if farm_times > 0:
+                        mark_surface = pygame.Surface((PIECE_SIZE // 2, PIECE_SIZE // 2), pygame.SRCALPHA)
+                        pygame.draw.circle(mark_surface, HIGHLIGHT_RED,
+                                           (PIECE_SIZE // 4, PIECE_SIZE // 4), PIECE_SIZE // 4)
+
+                        # 绘制屯田次数
+                        text_surface = self.font.render(str(farm_times), True, WHITE)
+                        text_rect = text_surface.get_rect(center=(PIECE_SIZE // 4, PIECE_SIZE // 4))
+                        mark_surface.blit(text_surface, text_rect)
+
+                        mark_rect = mark_surface.get_rect(center=(x, y))
+                        screen.blit(mark_surface, mark_rect)
+
+    def draw_management_instructions(self, screen):
+        # 绘制管理视图的操作说明
+        instructions = []
+        if self.management_view == ManagementView.TAX:
+            instructions = [
+                "Tax Management View",
+                "Left Click: Mark as tax square",
+                "Right Click: Unmark",
+                "Ctrl+A: Mark all taxable squares",
+                "Click tax button again to exit"
+            ]
+        elif self.management_view == ManagementView.FARM:
+            instructions = [
+                "Farming Management View",
+                "Left Click: Increase farming times",
+                "Right Click: Decrease farming times",
+                "Click farming button again to exit"
+            ]
+
+        # 绘制说明背景
+        instruction_bg = pygame.Surface((scl(300), scl(180)), pygame.SRCALPHA)
+        instruction_bg.fill((0, 0, 0, 200))
+        screen.blit(instruction_bg, (scl(50), scl(200)))
+
+        # 绘制说明文字
+        font_small = pygame.font.Font(GAME_FONT, scl(20))
+        for i, instruction in enumerate(instructions):
+            text = font_small.render(instruction, True, WHITE)
+            screen.blit(text, (scl(60), scl(210) + i * scl(30)))
+
     def draw_game_info(self, screen):
         # 定义信息栏的位置和尺寸
         info_rect = pygame.Rect(POS_INFO_NW[0], POS_INFO_NW[1],
                                 POS_INFO_SE[0] - POS_INFO_NW[0],
                                 POS_INFO_SE[1] - POS_INFO_NW[1])
-
-        # 绘制信息栏背景
-        # pygame.draw.rect(screen, (240, 240, 240), info_rect)
-        # pygame.draw.rect(screen, BLACK, info_rect, 2)  # 边框
 
         # 设置字体
         font_large = pygame.font.Font(GAME_FONT, scl(36))
@@ -462,36 +620,48 @@ class Game:
 
         # 绘制玩家资源信息
         for player in self.players:
-            food_text = font_small.render(f"{player.color}: Food: {self.resource_system.food[player.color]}", True, WHITE)
-            # food_text = font_small.render(f"{player.color}: {len(player.pieces)} pieces, Food: {self.resource_system.food[player.color]}", True, WHITE)
+            food_text = font_small.render(f"{player.color}: Food: {self.resource_system.food[player.color]}", True,
+                                          WHITE)
             screen.blit(food_text, (x, y))
             y += scl(40)
 
         y += scl(30)  # 增加一些间距
 
         # 绘制当前阶段信息
-        phase_text = font_small.render(f"Phase: {self.phase}", True, WHITE)
+        phase_text = font_small.render(f"Phase: {self.phase.value}", True, WHITE)
         screen.blit(phase_text, (x, y))
-        y += scl(60)
-        
-        # 绘制玩家完成状态
-        for i, player in enumerate(self.players):
-            move_status = "ok" if self.player_move_completed[i] else "○"
-            action_status = "ok" if self.player_action_completed[i] else "○"
-            status_text = font_small.render(
-                f"{player.color}: Move {move_status} | Action {action_status}", 
+        y += scl(40)
+
+        # 绘制管理视图信息
+        if self.management_view != ManagementView.NONE:
+            view_text = font_small.render(f"View: {self.management_view.value}", True, WHITE)
+            screen.blit(view_text, (x, y))
+            y += scl(40)
+
+        # 绘制移动次数信息
+        if self.phase == GamePhase.MOVE:
+            moves_text = font_small.render(
+                f"Moves: {current_player.moves_this_turn}/{PIECE_MOVE_MAX}",
                 True, WHITE
             )
-            screen.blit(status_text, (x, y))
+            screen.blit(moves_text, (x, y))
             y += scl(40)
+
         y += scl(20)
 
         # 绘制操作说明
-        instructions = [
-            "Click piece to select",
-            "Click target position to move",
-            "Press R to restart game"
-        ]
+        instructions = []
+        if self.phase == GamePhase.ACTION:
+            instructions = [
+                "Click Tax/Farming buttons for planning",
+                "Click End Turn to implement plan"
+            ]
+        elif self.phase == GamePhase.MOVE:
+            instructions = [
+                "Click piece to select",
+                "Click target position to move",
+                "Maximum 1 move per turn"
+            ]
 
         for instruction in instructions:
             text = font_small.render(instruction, True, WHITE)
@@ -514,9 +684,7 @@ class Game:
             width, height = button_info['size']
 
             # 根据阶段和条件决定按钮是否可用
-            if button_id == 'tax' and self.phase != "action":
-                button_color = (100, 100, 100)  # 灰色表示禁用
-            elif button_id == 'skill' and (self.phase != "action" or self.selected_piece is None):
+            if button_id in ['tax', 'farm'] and self.phase != GamePhase.ACTION:
                 button_color = (100, 100, 100)  # 灰色表示禁用
             elif button_id == 'end_turn':
                 button_color = (100, 100, 200)  # 结束回合按钮始终可用
@@ -530,7 +698,7 @@ class Game:
 
             # 绘制按钮文字
             text = self.button_font.render(button_info['name'], True, WHITE)
-            text_rect = text.get_rect(center=(x + width//2, y + height//2))
+            text_rect = text.get_rect(center=(x + width // 2, y + height // 2))
             screen.blit(text, text_rect)
 
     def check_button_click(self, pos):
@@ -542,7 +710,7 @@ class Game:
 
             # 检查点击位置是否在按钮范围内
             if (btn_x <= x <= btn_x + btn_width and
-                btn_y <= y <= btn_y + btn_height):
+                    btn_y <= y <= btn_y + btn_height):
                 print(f"按钮被点击: {button_id}")
                 return button_id
 
@@ -550,102 +718,54 @@ class Game:
 
     def handle_button_action(self, button_id):
         current_player = self.get_current_player()
-        current_idx = self.current_player_idx
-        
+
         if button_id == 'tax':
-            # 征税逻辑（只在行动阶段有效）
-            if self.phase == "action":
-                # 检查是否有足够的粮草
-                if self.resource_system.food[current_player.color] <= 0:
-                    print(f"{current_player.color} 粮草不足，无法征税")
-                    return
-                tax_collected = self.resource_system.collect_tax(current_player, self.board)
-                self.resource_system.food[current_player.color] -= 1  # 征税消耗1点粮草
-                print(f"{current_player.color} 征税获得 {tax_collected} 粮草，消耗1点粮草")
-                
+            # 税收按钮逻辑
+            if self.phase == GamePhase.ACTION:
+                if self.management_view == ManagementView.TAX:
+                    # 如果已经在税收视图，退出
+                    self.management_view = ManagementView.NONE
+                else:
+                    # 进入税收视图
+                    self.management_view = ManagementView.TAX
+
+        elif button_id == 'farm':
+            # 屯田按钮逻辑
+            if self.phase == GamePhase.ACTION:
+                if self.management_view == ManagementView.FARM:
+                    # 如果已经在屯田视图，退出
+                    self.management_view = ManagementView.NONE
+                else:
+                    # 进入屯田视图
+                    self.management_view = ManagementView.FARM
+
         elif button_id == 'end_turn':
-            # 结束当前阶段
-            if self.phase == "move":
-                # 在走子阶段结束回合，标记当前玩家已完成走子
-                self.player_move_completed[current_idx] = True
-                
-                # 检查是否所有玩家都完成了走子
-                if all(self.player_move_completed):
-                    # 所有玩家完成走子，切换到行动阶段
-                    self.phase = "action"
-                    self.player_action_completed = [False, False]
-                    self.current_player_idx = 0
-                    # 清除任何选中的棋子
-                    if self.selected_piece:
-                        self.selected_piece.selected = False
-                        self.selected_piece = None
-                else:
-                    # 切换到下一个玩家继续走子
-                    self.current_player_idx = (current_idx + 1) % len(self.players)
-                    # 清除任何选中的棋子
-                    if self.selected_piece:
-                        self.selected_piece.selected = False
-                        self.selected_piece = None
-                    
-            elif self.phase == "action":
-                # 在行动阶段结束回合，标记当前玩家已完成行动
-                self.player_action_completed[current_idx] = True
-                
-                # 检查是否所有玩家都完成了行动
-                if all(self.player_action_completed):
-                    # 所有玩家完成行动，切换到下一回合的走子阶段
-                    self.phase = "move"
-                    self.player_move_completed = [False, False]
-                    # 触发回合结束事件
-                    self.event_handler.dispatch(GameEvent.TURN_END)
-                    # 从第一个玩家开始新回合
-                    self.current_player_idx = 0
-                else:
-                    # 切换到下一个玩家继续行动
-                    self.current_player_idx = (current_idx + 1) % len(self.players)
-                
-                # 清除任何选中的棋子
-                if self.selected_piece:
-                    self.selected_piece.selected = False
-                    self.selected_piece = None
-                    
-        elif button_id == 'skill':
-            # 技能逻辑（只在行动阶段有效）
-            if self.phase == "action":
-                if self.selected_piece and self.selected_piece.color == current_player.color:
-                    # 根据棋子类型使用相应技能
-                    if self.selected_piece.type == 'pawn':
-                        success, msg = self.pawn_skill(self.selected_piece)
-                        if success:
-                            self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
-                        print(msg)
-                    elif self.selected_piece.type == 'rook':
-                        success, msg = self.rook_skill(self.selected_piece)
-                        if success:
-                            self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
-                        print(msg)
-                    elif self.selected_piece.type == 'knight':
-                        success, msg = self.knight_skill(self.selected_piece)
-                        if success:
-                            self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
-                        print(msg)
-                    elif self.selected_piece.type == 'king':
-                        success, msg = self.king_skill(self.selected_piece)
-                        if success:
-                            self.skill_system.cast_skill(self.selected_piece.type, current_player.color)
-                        print(msg)
-                    elif self.selected_piece.type in ['bishop', 'queen']:
-                        self.use_ability(self.selected_piece)
-                    else:
-                        print("该棋子没有特殊技能")
-                else:
-                    print("请先选择一个自己的棋子再使用技能")
+            # 结束回合按钮逻辑
+            if self.phase == GamePhase.ACTION:
+                # 实施税收和屯田计划
+                tax_collected = self.resource_system.collect_tax(current_player.color)
+                farm_cost = self.resource_system.implement_farming(current_player.color)
+
+                print(f"{current_player.color} collected {tax_collected} food from tax")
+                print(f"{current_player.color} spent {farm_cost} food on farming")
+
+                # 切换到走子阶段
+                self.phase = GamePhase.MOVE
+                self.management_view = ManagementView.NONE
+                self.event_handler.dispatch(GameEvent.PHASE_CHANGE)
+
+            elif self.phase == GamePhase.MOVE:
+                # 切换到下一个玩家的行动阶段
+                self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
+                self.phase = GamePhase.ACTION
+                self.event_handler.dispatch(GameEvent.PHASE_CHANGE)
+                self.event_handler.dispatch(GameEvent.TURN_END)
 
     def is_blocked(self, from_pos, to_pos, attacker_color):
         """检查移动路径是否被障碍物阻挡"""
         from_row, from_col = from_pos
         to_row, to_col = to_pos
-        
+
         # 如果是马，可以跳过鹿角（但不能跳过堡垒）
         piece = self.board[from_row][from_col]
         if piece and piece.type == 'knight':
@@ -653,7 +773,7 @@ class Game:
             if (to_row, to_col) in self.fortresses and self.fortresses[(to_row, to_col)] != attacker_color:
                 return True
             return False
-        
+
         # 直线移动检测
         if from_row == to_row or from_col == to_col:
             if from_row == to_row:  # 水平移动
@@ -674,7 +794,7 @@ class Game:
                         return True
                     if pos in self.fortresses and self.fortresses[pos] != attacker_color:
                         return True
-        
+
         # 斜线移动检测
         else:
             row_step = 1 if to_row > from_row else -1
@@ -688,33 +808,35 @@ class Game:
                     return True
                 if pos in self.fortresses and self.fortresses[pos] != attacker_color:
                     return True
-        
+
         # 目标位置堡垒检测
         if to_pos in self.fortresses and self.fortresses[to_pos] != attacker_color:
             return True
-            
+
         return False
 
     def move_piece(self, from_row, from_col, to_row, to_col):
         # 移动棋子
         piece = self.board[from_row][from_col]
-        
+        current_player = self.get_current_player()
+
+        # 检查是否已超过移动次数限制
+        if current_player.moves_this_turn >= PIECE_MOVE_MAX:
+            print("Maximum moves per turn reached")
+            return False
+
         # 检查目标位置是否有敌方鹿角
         target_pos = (to_row, to_col)
         if target_pos in self.antlers and self.antlers[target_pos] != piece.color:
             # 吃掉鹿角（不移位，只移除鹿角）
             del self.antlers[target_pos]
-            print(f"{piece.color} 吃掉了敌方鹿角")
-            return  # 不移位，直接返回
-            
+            print(f"{piece.color} ate enemy antlers")
+            return True  # 不移位，但消耗移动次数
+
         # 检查目标位置是否有敌方堡垒
         if target_pos in self.fortresses and self.fortresses[target_pos] != piece.color:
-            print(f"{piece.color} 无法移动到敌方堡垒")
-            return  # 无法移动到敌方堡垒
-        
-        # 如果是特殊棋子移动，消耗资源
-        if piece.type in ['knight', 'bishop', 'queen']:
-            self.skill_system.cast_skill(piece.type, piece.color)
+            print(f"{piece.color} cannot move to enemy fortress")
+            return False  # 无法移动到敌方堡垒
 
         # 处理目标位置的棋子（吃子）
         target_piece = self.board[to_row][to_col]
@@ -725,10 +847,18 @@ class Game:
                     player.pieces.remove(target_piece)
                     break
 
+        # 更新领土控制
+        self.resource_system.update_territory(to_row, to_col, piece.color)
+
+        # 执行移动
         self.board[to_row][to_col] = piece
         self.board[from_row][from_col] = None
         piece.row = to_row
         piece.col = to_col
+        piece.moved_this_turn = True
+        current_player.moves_this_turn += 1
+
+        return True
 
     def get_valid_moves(self, row, col):
         piece = self.board[row][col]
@@ -742,8 +872,8 @@ class Game:
                 moves.append((row + direction, col))
                 # 如果是初始位置，可以前进两格
                 if (piece.color == 'black' and row == 1) or (piece.color == 'white' and row == 6):
-                    if self.board[row + 2*direction][col] is None:
-                        moves.append((row + 2*direction, col))
+                    if self.board[row + 2 * direction][col] is None:
+                        moves.append((row + 2 * direction, col))
             # 吃子斜进
             for dc in [-1, 1]:
                 if 0 <= col + dc < GRID_SIZE and 0 <= row + direction < GRID_SIZE:
@@ -753,9 +883,9 @@ class Game:
 
         elif piece.type == 'rook':
             # 车的移动规则（直线无限距离）
-            for dr, dc in [(1,0), (-1,0), (0,1), (0,-1)]:
+            for dr, dc in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
                 for i in range(1, GRID_SIZE):
-                    r, c = row + dr*i, col + dc*i
+                    r, c = row + dr * i, col + dc * i
                     if not (0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE):
                         break
                     if self.board[r][c] is None:
@@ -767,7 +897,7 @@ class Game:
 
         elif piece.type == 'knight':
             # 马的移动规则（L形）
-            for dr, dc in [(2,1), (2,-1), (-2,1), (-2,-1), (1,2), (1,-2), (-1,2), (-1,-2)]:
+            for dr, dc in [(2, 1), (2, -1), (-2, 1), (-2, -1), (1, 2), (1, -2), (-1, 2), (-1, -2)]:
                 r, c = row + dr, col + dc
                 if 0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE:
                     if self.board[r][c] is None or self.board[r][c].color != piece.color:
@@ -775,9 +905,9 @@ class Game:
 
         elif piece.type == 'bishop':
             # 象的移动规则（斜线无限距离）
-            for dr, dc in [(1,1), (1,-1), (-1,1), (-1,-1)]:
+            for dr, dc in [(1, 1), (1, -1), (-1, 1), (-1, -1)]:
                 for i in range(1, GRID_SIZE):
-                    r, c = row + dr*i, col + dc*i
+                    r, c = row + dr * i, col + dc * i
                     if not (0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE):
                         break
                     if self.board[r][c] is None:
@@ -789,9 +919,9 @@ class Game:
 
         elif piece.type == 'queen':
             # 后的移动规则（直线+斜线无限距离）
-            for dr, dc in [(1,0), (-1,0), (0,1), (0,-1), (1,1), (1,-1), (-1,1), (-1,-1)]:
+            for dr, dc in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]:
                 for i in range(1, GRID_SIZE):
-                    r, c = row + dr*i, col + dc*i
+                    r, c = row + dr * i, col + dc * i
                     if not (0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE):
                         break
                     if self.board[r][c] is None:
@@ -818,76 +948,66 @@ class Game:
             # 检查目标位置是否有敌方堡垒
             if move in self.fortresses and self.fortresses[move] != piece.color:
                 continue  # 跳过敌方堡垒
-                
+
             # 检查移动路径是否被阻挡
             if not self.is_blocked((row, col), move, piece.color):
                 valid_moves.append(move)
-                
+
         return valid_moves
 
-    def pawn_skill(self, piece):
-        """兵技能：放置鹿角"""
-        pos = (piece.row, piece.col)
-        if pos not in self.antlers and pos not in self.fortresses:
-            self.antlers[pos] = piece.color
-            return True, "鹿角放置成功"
-        return False, "该位置已有障碍物"
-
-    def rook_skill(self, piece):
-        """车技能：建造堡垒"""
-        pos = (piece.row, piece.col)
-        if pos not in self.fortresses and pos not in self.antlers:
-            self.fortresses[pos] = piece.color
-            # 堡垒提供防御加成
-            self.resource_system.fertility[piece.row][piece.col] += 20
-            return True, "堡垒建造成功"
-        return False, "该位置已有障碍物"
-
-    def handle_click(self, pos):
-        if self.game_over:
-            return
-            
-        # 根据当前阶段决定处理逻辑
-        if self.phase == "move":
-            self._handle_move_phase(pos)
-        elif self.phase == "action":
-            self._handle_action_phase(pos)
-
-    def _handle_action_phase(self, pos):
-        # 先检查是否点击了按钮
-        button_clicked = self.check_button_click(pos)
-        if button_clicked:
-            # 处理按钮点击
-            self.handle_button_action(button_clicked)
-            return
-            
-        # 将屏幕坐标转换为网格坐标
+    def handle_management_view_click(self, pos, button):
+        # 处理管理视图的点击
         grid_pos = screen_to_grid(pos[0], pos[1])
         if grid_pos is None:
             return
-            
+
         row, col = grid_pos
         current_player = self.get_current_player()
-        
-        # 如果没有选中的棋子，尝试选择一个
-        if self.selected_piece is None:
-            if self.board[row][col] and self.board[row][col].color == current_player.color:
-                self.board[row][col].selected = True
-                self.selected_piece = self.board[row][col]
-                # 在行动阶段不显示移动范围
-                self.valid_moves = []
-        else:
-            # 如果已经选中了棋子，检查是否点击了同一棋子（取消选择）
-            if (row, col) == (self.selected_piece.row, self.selected_piece.col):
-                self.selected_piece.selected = False
-                self.selected_piece = None
-                self.valid_moves = []
-            # 如果点击了其他棋子，切换选择
-            elif self.board[row][col] and self.board[row][col].color == current_player.color:
-                self.selected_piece.selected = False
-                self.board[row][col].selected = True
-                self.selected_piece = self.board[row][col]
-                self.valid_moves = []
+
+        # 只有自己的领土才能操作
+        if self.resource_system.territory[row][col] != current_player.color:
+            return
+
+        if self.management_view == ManagementView.TAX:
+            # 税收视图
+            if button == 1:  # 左键
+                self.resource_system.tax_grid[row][col] = True
+            elif button == 3:  # 右键
+                self.resource_system.tax_grid[row][col] = False
+
+        elif self.management_view == ManagementView.FARM:
+            # 屯田视图
+            if button == 1:  # 左键
+                if self.resource_system.farm_grid[row][col] < FARM_MAX_IN_A_TURN:
+                    self.resource_system.farm_grid[row][col] += 1
+            elif button == 3:  # 右键
+                if self.resource_system.farm_grid[row][col] > 0:
+                    self.resource_system.farm_grid[row][col] -= 1
+
+    def handle_click(self, pos, button=1):
+        if self.game_over:
+            return
+
+        # 先检查是否点击了按钮
+        button_clicked = self.check_button_click(pos)
+        if button_clicked:
+            self.handle_button_action(button_clicked)
+            return
+
+        # 如果在管理视图中，处理管理视图的点击
+        if self.management_view != ManagementView.NONE:
+            self.handle_management_view_click(pos, button)
+            return
+
+        # 根据当前阶段决定处理逻辑
+        if self.phase == GamePhase.ACTION:
+            self._handle_action_phase(pos)
+        elif self.phase == GamePhase.MOVE:
+            self._handle_move_phase(pos)
+
+    def _handle_action_phase(self, pos):
+        # 行动阶段只能操作按钮，不能选择棋子
+        pass
 
     def _handle_move_phase(self, pos):
         # 将屏幕坐标转换为网格坐标
@@ -903,97 +1023,53 @@ class Game:
             if self.board[row][col] and self.board[row][col].color == current_player.color:
                 self.board[row][col].selected = True
                 self.selected_piece = self.board[row][col]
-                # 获取有效移动位置（这里需要您实现）
+                # 获取有效移动位置
                 self.valid_moves = self.get_valid_moves(row, col)
         else:
             # 如果已经选中了棋子，尝试移动它
             if (row, col) in self.valid_moves:
-                # 检查是否有足够的资源执行移动（对于特殊技能）
-                if self.selected_piece.type in ['knight', 'bishop', 'queen']:
-                    if not self.skill_system.can_cast_skill(self.selected_piece.type, current_player.color):
-                        # 资源不足，无法执行特殊技能
-                        self.selected_piece.selected = False
-                        self.selected_piece = None
-                        self.valid_moves = []
-                        return
+                success = self.move_piece(self.selected_piece.row, self.selected_piece.col, row, col)
+                if success:
+                    self.selected_piece.selected = False
+                    self.selected_piece = None
+                    self.valid_moves = []
 
-                self.move_piece(self.selected_piece.row, self.selected_piece.col, row, col)
-                self.selected_piece.selected = False
-                self.selected_piece = None
-                self.valid_moves = []
-
-                # 标记当前玩家已完成走子
-                current_idx = self.current_player_idx
-                self.player_move_completed[current_idx] = True
-                
-                # 检查是否所有玩家都完成了走子
-                if all(self.player_move_completed):
-                    # 所有玩家完成走子，切换到行动阶段
-                    self.phase = "action"
-                    # 重置行动完成状态
-                    self.player_action_completed = [False, False]
-                    # 从第一个玩家开始行动
-                    self.current_player_idx = 0
-                else:
-                    # 切换到下一个玩家继续走子
-                    self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
-
-                # 检查游戏是否结束
-                self.check_game_over()
+                    # 检查游戏是否结束
+                    self.check_game_over()
             else:
                 # 如果点击了其他棋子，取消选择当前棋子
                 self.selected_piece.selected = False
                 self.selected_piece = None
                 self.valid_moves = []
 
-    def switch_player(self):
-        # 切换玩家
-        self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
-        # 触发回合结束事件
-        self.event_handler.dispatch(GameEvent.TURN_END)
-
     def on_turn_end(self, data=None):
         # 回合结束时的处理逻辑
         # 更新丰饶度
         self.resource_system.update_fertility(self.board)
 
-        # 更新叛乱值
-        for row in range(8):
-            for col in range(8):
-                # 丰饶度低于50时可能产生叛乱
-                if self.resource_system.fertility[row][col] < 50:
-                    import random
-                    self.resource_system.rebellion[row][col] += random.randint(0, 50 - self.resource_system.fertility[row][col])
-                    # 叛乱值超过100时，该格子变为中立（简化实现）
-                    if self.resource_system.rebellion[row][col] > 100:
-                        piece = self.board[row][col]
-                        if piece:
-                            # 从玩家棋子列表中移除
-                            for player in self.players:
-                                if piece in player.pieces:
-                                    player.pieces.remove(piece)
-                                    break
-                            self.board[row][col] = None
-                            self.resource_system.rebellion[row][col] = 0
-                            print(f"位置({row},{col})发生叛乱，棋子被移除")
+        # 重置玩家和棋子的回合状态
+        for player in self.players:
+            player.reset_turn_state()
 
-        # 征税
-        current_player = self.get_current_player()
-        # 回合开始时自动增加1点粮草
-        self.resource_system.food[current_player.color] += 1
-        print(f"{current_player.color} 回合开始，获得1点粮草")
+        # 重置管理网格
+        self.resource_system.reset_management_grids()
+
+    def on_phase_change(self, data=None):
+        # 阶段变化时的处理逻辑
+        if self.phase == GamePhase.ACTION:
+            print("进入行动阶段")
+        elif self.phase == GamePhase.MOVE:
+            print("进入走子阶段")
 
     def check_game_over(self):
-        # 这里需要您实现检查游戏是否结束的逻辑
-        # 这只是示例代码，检查是否有一方的棋子全部被吃掉
+        # 检查游戏是否结束
+        # 如果一方没有棋子，游戏结束
         for player in self.players:
             if len(player.pieces) == 0:
                 self.game_over = True
-                # 找到棋子数量最多的玩家作为获胜者
-                max_pieces = 0
+                # 找到另一方作为获胜者
                 for p in self.players:
-                    if len(p.pieces) > max_pieces:
-                        max_pieces = len(p.pieces)
+                    if p != player:
                         self.winner = p.color
                 break
 
@@ -1009,16 +1085,18 @@ class Game:
         self.current_player_idx = 0
         self.game_over = False
         self.winner = None
+        self.phase = GamePhase.ACTION
+        self.management_view = ManagementView.NONE
         self.initialize_board()
 
         # 重置资源系统
         self.resource_system = ResourceSystem()
         self.skill_system = SkillSystem(self.resource_system)
-        
-        # 重置阶段状态
-        self.phase = "move"
-        self.player_move_completed = [False, False]  # 跟踪每个玩家是否完成走子
-        self.player_action_completed = [False, False]  # 跟踪每个玩家是否完成行动
+
+        # 重置障碍物
+        self.antlers = {}
+        self.fortresses = {}
+        self.core_territories = {}
 
 
 # 主游戏循环
@@ -1032,11 +1110,19 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:  # 左键点击
-                    game.handle_click(event.pos)
+                if event.button in [1, 3]:  # 左键或右键点击
+                    game.handle_click(event.pos, event.button)
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_r:  # 按R键重置游戏
                     game.reset()
+                elif event.key == pygame.K_a and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                    # Ctrl+A 标记所有可收税格子
+                    if game.management_view == ManagementView.TAX:
+                        current_player = game.get_current_player()
+                        for row in range(GRID_SIZE):
+                            for col in range(GRID_SIZE):
+                                if game.resource_system.territory[row][col] == current_player.color:
+                                    game.resource_system.tax_grid[row][col] = True
 
         # 绘制背景
         screen.fill(GRAY)
