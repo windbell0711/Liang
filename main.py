@@ -405,41 +405,47 @@ class Game:
         # 白方
         'white_tax': {
             'name': '白征税',
-            'pos': [scl(50), scl(50)],
-            'size': [scl(100), scl(40)],
-            'anchor': 'NW'
+            'pos':  [scl(116), scl(252)],
+            'size': [scl(72),  scl(88)],
+            'anchor': 'NW',
+            'invisible': False,
         },
         'white_farm': {
             'name': '白屯田',
-            'pos': [scl(50), scl(100)],
-            'size': [scl(100), scl(40)],
-            'anchor': 'NW'
+            'pos':  [scl(202), scl(252)],
+            'size': [scl(72),  scl(88)],
+            'anchor': 'NW',
+            'invisible': False,
         },
         'white_end': {
             'name': '白结束',
-            'pos': [scl(50), scl(150)],
-            'size': [scl(100), scl(40)],
-            'anchor': 'NW'
+            'pos':  [scl(288), scl(252)],
+            'size': [scl(72),  scl(88)],
+            'anchor': 'NW',
+            'invisible': False,
         },
 
         # 黑方
         'black_tax': {
             'name': '黑征税',
-            'pos': [scl(50), scl(250)],
-            'size': [scl(100), scl(40)],
-            'anchor': 'NW'
+            'pos':  [scl(116), scl(565)],
+            'size': [scl(72),  scl(88)],
+            'anchor': 'NW',
+            'invisible': False,
         },
         'black_farm': {
             'name': '黑屯田',
-            'pos': [scl(50), scl(300)],
-            'size': [scl(100), scl(40)],
-            'anchor': 'NW'
+            'pos':  [scl(202), scl(565)],
+            'size': [scl(72),  scl(88)],
+            'anchor': 'NW',
+            'invisible': False,
         },
         'black_end': {
             'name': '黑结束',
-            'pos': [scl(50), scl(350)],
-            'size': [scl(100), scl(40)],
-            'anchor': 'NW'
+            'pos':  [scl(288), scl(565)],
+            'size': [scl(72),  scl(88)],
+            'anchor': 'NW',
+            'invisible': False,
         }
     }
 
@@ -712,6 +718,10 @@ class Game:
     def draw_buttons(self, screen):
         current = self.get_current_player()
         for btn_id, info in self.buttons.items():
+            # 跳过不可见的按钮
+            if 'invisible' in info.keys() and info['invisible']:
+                continue
+
             x, y = info['pos']
             w, h = info['size']
             rect = pygame.Rect(x, y, w, h)
