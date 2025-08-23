@@ -399,21 +399,42 @@ class Player:
 # 游戏类
 class Game:
     BUTTONS = {
-        'tax': {
-            'name': '税收',
+        # 白方
+        'white_tax': {
+            'name': '白征税',
             'pos': [scl(50), scl(50)],
-            'size': [scl(80), scl(40)],
+            'size': [scl(100), scl(40)],
             'anchor': 'NW'
         },
-        'farm': {
-            'name': '屯田',
+        'white_farm': {
+            'name': '白屯田',
             'pos': [scl(50), scl(100)],
-            'size': [scl(80), scl(40)],
+            'size': [scl(100), scl(40)],
             'anchor': 'NW'
         },
-        'end_turn': {
-            'name': '结束回合',
+        'white_end': {
+            'name': '白结束',
             'pos': [scl(50), scl(150)],
+            'size': [scl(100), scl(40)],
+            'anchor': 'NW'
+        },
+
+        # 黑方
+        'black_tax': {
+            'name': '黑征税',
+            'pos': [scl(50), scl(250)],
+            'size': [scl(100), scl(40)],
+            'anchor': 'NW'
+        },
+        'black_farm': {
+            'name': '黑屯田',
+            'pos': [scl(50), scl(300)],
+            'size': [scl(100), scl(40)],
+            'anchor': 'NW'
+        },
+        'black_end': {
+            'name': '黑结束',
+            'pos': [scl(50), scl(350)],
             'size': [scl(100), scl(40)],
             'anchor': 'NW'
         }
@@ -538,35 +559,43 @@ class Game:
             self.draw_management_instructions(screen)
 
     def draw_management_marks(self, screen):
-        # 绘制管理视图的标记
+        # 统一方框/圆圈的边长（像素）
+        mark_size = int(GRID_SPACING_X * 0.8)
+
         for row in range(GRID_SIZE):
             for col in range(GRID_SIZE):
                 x, y = grid_to_screen(row, col)
 
+                # ================= 征税模式 =================
                 if self.management_view == ManagementView.TAX:
-                    # 绘制税收标记
-                    if self.resource_system.tax_grid[row][col]:
-                        mark_surface = pygame.Surface((PIECE_SIZE // 2, PIECE_SIZE // 2), pygame.SRCALPHA)
-                        pygame.draw.circle(mark_surface, HIGHLIGHT_GREEN,
-                                           (PIECE_SIZE // 4, PIECE_SIZE // 4), PIECE_SIZE // 4)
-                        mark_rect = mark_surface.get_rect(center=(x, y))
-                        screen.blit(mark_surface, mark_rect)
+                    # 只给当前玩家自己的领土画绿色框
+                    if (self.resource_system.territory[row][col] ==
+                            self.get_current_player().color):
+                        if self.resource_system.tax_grid[row][col]:
+                            # 计算矩形框的尺寸和位置
+                            rect_size = int(GRID_SPACING_X * 0.8)  # 矩形框大小为格子间距的80%
+                            rect_x = x - rect_size // 2
+                            rect_y = y - rect_size // 2
+                            # 绘制红色矩形框
+                            pygame.draw.rect(screen, RED, (rect_x, rect_y, rect_size, rect_size), 2)
+                        else:
+                            rect_x = x - mark_size // 2
+                            rect_y = y - mark_size // 2
+                            # 绿色方框
+                            pygame.draw.rect(screen, GREEN, (rect_x, rect_y, mark_size, mark_size), 3)
 
+
+                # ================= 屯田模式 =================
                 elif self.management_view == ManagementView.FARM:
-                    # 绘制屯田标记
                     farm_times = self.resource_system.farm_grid[row][col]
                     if farm_times > 0:
-                        mark_surface = pygame.Surface((PIECE_SIZE // 2, PIECE_SIZE // 2), pygame.SRCALPHA)
-                        pygame.draw.circle(mark_surface, HIGHLIGHT_RED,
-                                           (PIECE_SIZE // 4, PIECE_SIZE // 4), PIECE_SIZE // 4)
-
-                        # 绘制屯田次数
+                        # 放大后的红色圆圈
+                        pygame.draw.circle(screen, HIGHLIGHT_RED,
+                                           (x, y), mark_size // 2, 3)
+                        # 圈中央写数字
                         text_surface = self.font.render(str(farm_times), True, WHITE)
-                        text_rect = text_surface.get_rect(center=(PIECE_SIZE // 4, PIECE_SIZE // 4))
-                        mark_surface.blit(text_surface, text_rect)
-
-                        mark_rect = mark_surface.get_rect(center=(x, y))
-                        screen.blit(mark_surface, mark_rect)
+                        text_rect = text_surface.get_rect(center=(x, y))
+                        screen.blit(text_surface, text_rect)
 
     def draw_management_instructions(self, screen):
         # 绘制管理视图的操作说明
@@ -678,27 +707,26 @@ class Game:
             screen.blit(winner_text, (x, y))
 
     def draw_buttons(self, screen):
-        """绘制所有按钮"""
-        for button_id, button_info in self.buttons.items():
-            x, y = button_info['pos']
-            width, height = button_info['size']
+        current = self.get_current_player()
+        for btn_id, info in self.buttons.items():
+            x, y = info['pos']
+            w, h = info['size']
+            rect = pygame.Rect(x, y, w, h)
 
-            # 根据阶段和条件决定按钮是否可用
-            if button_id in ['tax', 'farm'] and self.phase != GamePhase.ACTION:
-                button_color = (100, 100, 100)  # 灰色表示禁用
-            elif button_id == 'end_turn':
-                button_color = (100, 100, 200)  # 结束回合按钮始终可用
-            else:
-                button_color = (100, 100, 200)  # 正常颜色
+            # 可用性：对应回合 + 对应阶段
+            is_usable = True
+            if btn_id.startswith('white') and current.color != 'white':
+                is_usable = False
+            if btn_id.startswith('black') and current.color != 'black':
+                is_usable = False
+            if any(k in btn_id for k in ['tax', 'farm']) and self.phase != GamePhase.ACTION:
+                is_usable = False
 
-            # 绘制按钮背景
-            button_rect = pygame.Rect(x, y, width, height)
-            pygame.draw.rect(screen, button_color, button_rect)
-            pygame.draw.rect(screen, BLACK, button_rect, 2)
-
-            # 绘制按钮文字
-            text = self.button_font.render(button_info['name'], True, WHITE)
-            text_rect = text.get_rect(center=(x + width // 2, y + height // 2))
+            color = (100, 100, 200) if is_usable else (100, 100, 100)
+            pygame.draw.rect(screen, color, rect)
+            pygame.draw.rect(screen, BLACK, rect, 2)
+            text = self.button_font.render(info['name'], True, WHITE)
+            text_rect = text.get_rect(center=rect.center)
             screen.blit(text, text_rect)
 
     def check_button_click(self, pos):
@@ -717,45 +745,46 @@ class Game:
         return None
 
     def handle_button_action(self, button_id):
-        current_player = self.get_current_player()
+        current = self.get_current_player()  # 当前回合玩家
+        # 白方按钮只能白方回合用，黑方按钮只能黑方回合用
+        usable = {
+            'white_tax': current.color == 'white' and self.phase == GamePhase.ACTION,
+            'white_farm': current.color == 'white' and self.phase == GamePhase.ACTION,
+            'white_end': current.color == 'white',
+            'black_tax': current.color == 'black' and self.phase == GamePhase.ACTION,
+            'black_farm': current.color == 'black' and self.phase == GamePhase.ACTION,
+            'black_end': current.color == 'black'
+        }
+        if not usable.get(button_id, False):
+            return  # 不是对应回合，直接忽略
 
-        if button_id == 'tax':
-            # 税收按钮逻辑
+        # --------- 征税 ---------
+        if button_id.endswith('_tax'):
+            if self.management_view == ManagementView.TAX:
+                self.management_view = ManagementView.NONE  # 再次点击退出
+            else:
+                self.management_view = ManagementView.TAX
+
+        # --------- 屯田 ---------
+        elif button_id.endswith('_farm'):
+            if self.management_view == ManagementView.FARM:
+                self.management_view = ManagementView.NONE
+            else:
+                self.management_view = ManagementView.FARM
+
+        # --------- 结束回合 ---------
+        elif button_id.endswith('_end'):
             if self.phase == GamePhase.ACTION:
-                if self.management_view == ManagementView.TAX:
-                    # 如果已经在税收视图，退出
-                    self.management_view = ManagementView.NONE
-                else:
-                    # 进入税收视图
-                    self.management_view = ManagementView.TAX
-
-        elif button_id == 'farm':
-            # 屯田按钮逻辑
-            if self.phase == GamePhase.ACTION:
-                if self.management_view == ManagementView.FARM:
-                    # 如果已经在屯田视图，退出
-                    self.management_view = ManagementView.NONE
-                else:
-                    # 进入屯田视图
-                    self.management_view = ManagementView.FARM
-
-        elif button_id == 'end_turn':
-            # 结束回合按钮逻辑
-            if self.phase == GamePhase.ACTION:
-                # 实施税收和屯田计划
-                tax_collected = self.resource_system.collect_tax(current_player.color)
-                farm_cost = self.resource_system.implement_farming(current_player.color)
-
-                print(f"{current_player.color} collected {tax_collected} food from tax")
-                print(f"{current_player.color} spent {farm_cost} food on farming")
-
-                # 切换到走子阶段
+                # 执行税收 + 屯田
+                tax = self.resource_system.collect_tax(current.color)
+                farm_cost = self.resource_system.implement_farming(current.color)
+                print(f"{current.color} 征税 {tax}，屯田花费 {farm_cost}")
                 self.phase = GamePhase.MOVE
                 self.management_view = ManagementView.NONE
                 self.event_handler.dispatch(GameEvent.PHASE_CHANGE)
 
             elif self.phase == GamePhase.MOVE:
-                # 切换到下一个玩家的行动阶段
+                # 轮到下一位玩家
                 self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
                 self.phase = GamePhase.ACTION
                 self.event_handler.dispatch(GameEvent.PHASE_CHANGE)
