@@ -6,7 +6,7 @@ from collections import defaultdict
 from enum import Enum
 
 # 游戏常量
-SCREEN_SCALE = 0.7
+SCREEN_SCALE = 0.75
 scl = lambda x: int(x * SCREEN_SCALE)
 
 SCREEN_WIDTH = scl(1600)
@@ -18,8 +18,10 @@ GRID_SIZE = 8  # 8x8棋盘
 # 游戏参数
 INITIAL_FOOD = 20
 INITIAL_FERTILITY = 100
+
 FARM_MAX_IN_A_TURN = 5
-PIECE_MOVE_MAX = 1
+PIECE_MOVE_MAX_IN_A_TURN = 1
+SKILL_MAX_IN_A_TURN = 1
 
 # 透明度常量
 BEHIND_OBST_TRANS = 0.6  # 棋子在障碍物下的透明度
@@ -39,6 +41,7 @@ GRID_SPACING_Y = (POS_GRID_SE_CENTRE[1] - POS_GRID_NW_CENTRE[1]) / (GRID_SIZE - 
 PIECE_SIZE = scl(60)
 
 # 颜色定义
+BACKGROUND_COLOUR = (22, 70, 33)
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 RED = (255, 0, 0)
@@ -473,8 +476,8 @@ class Game:
             Player('black', 8),
             Player('white', 8)
         ]
-        self.board = [[None for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
-        self.selected_piece = None
+        self.board: list[list[Piece|None]] = [[None for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+        self.selected_piece:  Piece|None = None
         self.valid_moves = []
         self.current_player_idx = 0  # 当前玩家索引
         self.game_over = False
@@ -670,7 +673,7 @@ class Game:
         # 绘制移动次数信息
         if self.phase == GamePhase.MOVE:
             moves_text = font_small.render(
-                f"Moves: {current_player.moves_this_turn}/{PIECE_MOVE_MAX}",
+                f"Moves: {current_player.moves_this_turn}/{PIECE_MOVE_MAX_IN_A_TURN}",
                 True, WHITE
             )
             screen.blit(moves_text, (x, y))
@@ -850,7 +853,7 @@ class Game:
         current_player = self.get_current_player()
 
         # 检查是否已超过移动次数限制
-        if current_player.moves_this_turn >= PIECE_MOVE_MAX:
+        if current_player.moves_this_turn >= PIECE_MOVE_MAX_IN_A_TURN:
             print("Maximum moves per turn reached")
             return False
 
@@ -1154,7 +1157,7 @@ def main():
                                     game.resource_system.tax_grid[row][col] = True
 
         # 绘制背景
-        screen.fill(GRAY)
+        screen.fill(BACKGROUND_COLOUR)
 
         # 绘制游戏
         game.draw(screen)
