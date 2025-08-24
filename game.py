@@ -315,9 +315,9 @@ class Game:
         self.event_handler.add_listener(GameEvent.PHASE_CHANGE, self.on_phase_change)
 
         self.players = [
+            Player('white', 8),
             Player('black', 8),
-            Player('white', 8)
-        ]
+        ]  # 顺序影响走子顺序
         self.board: list[list[Piece|None]] = [[None for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
         self.selected_piece:  Piece|None = None
         self.valid_moves = []
@@ -565,7 +565,7 @@ class Game:
         # 绘制移动次数信息
         if self.phase == GamePhase.MOVE:
             moves_text = font_small.render(
-                f"Moves: {current_player.moves_this_turn}/{PIECE_MOVE_MAX_IN_A_TURN}",
+                f"Moves: {current_player.moves_this_turn}/{PIECE_MOVE_MAX_PER_TURN}",
                 True, WHITE
             )
             screen.blit(moves_text, (x, y))
@@ -573,7 +573,7 @@ class Game:
 
             # 添加技能使用次数显示
             skills_text = font_small.render(
-                f"Skills: {current_player.skills_used_this_turn}/{SKILL_MAX_IN_A_TURN}",
+                f"Skills: {current_player.skills_used_this_turn}/{SKILL_MAX_PER_TURN}",
                 True, WHITE
             )
             screen.blit(skills_text, (x, y))
@@ -785,13 +785,13 @@ class Game:
         current_player = self.get_current_player()
 
         # 检查是否已超过移动次数限制
-        if current_player.moves_this_turn >= PIECE_MOVE_MAX_IN_A_TURN:
+        if current_player.moves_this_turn >= PIECE_MOVE_MAX_PER_TURN:
             print("Maximum moves per turn reached")
             return False
 
         # 检查王是否已超过移动次数限制
-        if piece.type == 'king' and piece.moved_this_turn >= PIECE_KING_MOVE_MAX_IN_A_TURN:
-            print("King can only move %s per turn" % to_times(PIECE_KING_MOVE_MAX_IN_A_TURN))
+        if piece.type == 'king' and piece.moved_this_turn >= PIECE_KING_MOVE_MAX_PER_TURN:
+            print("King can only move %s per turn" % to_times(PIECE_KING_MOVE_MAX_PER_TURN))
             return False
 
         # 检查移动消耗
@@ -968,7 +968,7 @@ class Game:
         elif self.management_view == ManagementView.FARM:
             # 屯田视图
             if button == 1:  # 左键
-                if self.resource_system.farm_grid[row][col] < FARM_MAX_IN_A_TURN:
+                if self.resource_system.farm_grid[row][col] < FARM_MAX_PER_GRID_PER_TURN:
                     self.resource_system.farm_grid[row][col] += 1
             elif button == 3:  # 右键
                 if self.resource_system.farm_grid[row][col] > 0:
@@ -1012,7 +1012,7 @@ class Game:
         if button == 3:  # 右键
             if self.board[row][col] and self.board[row][col].color == current_player.color:
                 # 检查技能使用次数限制
-                if current_player.skills_used_this_turn >= SKILL_MAX_IN_A_TURN:
+                if current_player.skills_used_this_turn >= SKILL_MAX_PER_TURN:
                     print("Maximum skills per turn reached")
                     return
 
@@ -1122,8 +1122,8 @@ class Game:
     def reset(self):
         # 重置游戏
         self.players = [
+            Player('white', 8),
             Player('black', 8),
-            Player('white', 8)
         ]
         self.board = [[None for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
         self.selected_piece = None
