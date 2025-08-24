@@ -2,10 +2,28 @@ import pygame
 import sys
 import os
 import math
+import logging
+from logging.handlers import RotatingFileHandler
 from collections import defaultdict
 
 from consts import *
 
+
+# 配置日志
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+if FILE_LOGGING_NAME:
+    if os.path.dirname(FILE_LOGGING_NAME) and not os.path.exists(os.path.dirname(FILE_LOGGING_NAME)):
+        os.makedirs(os.path.dirname(FILE_LOGGING_NAME))
+    file_handler = RotatingFileHandler(FILE_LOGGING_NAME, encoding='utf-8', maxBytes=256*1024, backupCount=2)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s: %(levelname)s:\t%(filename)s:%(lineno)d\t%(message)s"))
+    logger.addHandler(file_handler)
+if CONSOLE_LOGGING:
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter("%(asctime)s: %(levelname)s:\t%(filename)s:%(lineno)d\t%(message)s"))
+    logger.addHandler(console_handler)
 
 # 事件处理器
 class EventHandler:
@@ -25,7 +43,7 @@ def load_images():
     # 确保有images文件夹
     if not os.path.exists("images"):
         os.makedirs("images")
-        print("Please put image resources in the images folder")
+        logger.error("Please put image resources in the images folder")
 
     # 尝试加载图片，如果失败则使用彩色方块代替
     try:
@@ -36,7 +54,7 @@ def load_images():
             images['board'] = pygame.image.load("images/beach.png").convert_alpha()
             images['board'] = pygame.transform.scale(images['board'], (SCREEN_WIDTH, SCREEN_HEIGHT))
         except:
-            print("Cannot load board.png, using default background")
+            logger.warning("Cannot load board.png, using default background")
             images['board'] = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
             images['board'].fill(LIGHT_BROWN)
 
@@ -49,7 +67,7 @@ def load_images():
             images[f'piece_{color}'] = pygame.image.load(f"images/piece_{color}.png").convert_alpha()
             images[f'piece_{color}'] = pygame.transform.scale(images[f'piece_{color}'], (PIECE_SIZE, PIECE_SIZE))
         except:
-            print(f"Cannot load piece_{color}.png, using default piece")
+            logger.warning(f"Cannot load piece_{color}.png, using default piece")
             images[f'piece_{color}'] = pygame.Surface((PIECE_SIZE, PIECE_SIZE), pygame.SRCALPHA)
             if color == 'black':
                 pygame.draw.circle(images[f'piece_{color}'], BLACK, (PIECE_SIZE // 2, PIECE_SIZE // 2), PIECE_SIZE // 2)
@@ -64,7 +82,7 @@ def load_images():
                 images[f'piece_{color}_{ptype}'] = pygame.transform.scale(images[f'piece_{color}_{ptype}'],
                                                                           (PIECE_SIZE, PIECE_SIZE))
             except:
-                print(f"Cannot load piece_{color}_{ptype}.png, using default piece")
+                logger.warning(f"Cannot load piece_{color}_{ptype}.png, using default piece")
                 # 如果没有专用贴图，将使用通用颜色贴图
 
     # 加载障碍物贴图
@@ -75,7 +93,7 @@ def load_images():
             images[f'obstacle_{color}_lujiao'] = pygame.transform.scale(images[f'obstacle_{color}_lujiao'],
                                                                         (PIECE_SIZE, PIECE_SIZE))
         except:
-            print(f"Cannot load obstacle_{color}_lujiao.png, using default indicator")
+            logger.warning(f"Cannot load obstacle_{color}_lujiao.png, using default indicator")
             images[f'obstacle_{color}_lujiao'] = pygame.Surface((PIECE_SIZE, PIECE_SIZE), pygame.SRCALPHA)
             # 使用颜色圆圈作为默认显示
             circle_color = BLACK if color == 'black' else WHITE
@@ -89,7 +107,7 @@ def load_images():
             images[f'obstacle_{color}_fortress'] = pygame.transform.scale(images[f'obstacle_{color}_fortress'],
                                                                           (PIECE_SIZE, PIECE_SIZE))
         except:
-            print(f"Cannot load obstacle_{color}_fortress.png, using default indicator")
+            logger.warning(f"Cannot load obstacle_{color}_fortress.png, using default indicator")
             images[f'obstacle_{color}_fortress'] = pygame.Surface((PIECE_SIZE, PIECE_SIZE), pygame.SRCALPHA)
             circle_color = BLACK if color == 'black' else WHITE
             pygame.draw.rect(images[f'obstacle_{color}_fortress'], circle_color, (0, 0, PIECE_SIZE, PIECE_SIZE))
@@ -99,7 +117,7 @@ def load_images():
         images['highlight'] = pygame.image.load("images/highlight.png").convert_alpha()
         images['highlight'] = pygame.transform.scale(images['highlight'], (PIECE_SIZE + 20, PIECE_SIZE + 20))
     except:
-        print("Cannot load highlight.png, using default highlight effect")
+        logger.warning("Cannot load highlight.png, using default highlight effect")
         images['highlight'] = pygame.Surface((PIECE_SIZE + 20, PIECE_SIZE + 20), pygame.SRCALPHA)
         pygame.draw.circle(images['highlight'], (255, 255, 0, 128), (PIECE_SIZE // 2 + 10, PIECE_SIZE // 2 + 10),
                            PIECE_SIZE // 2 + 5, 5)
@@ -108,7 +126,7 @@ def load_images():
         images['valid_move'] = pygame.image.load("images/valid_move.png").convert_alpha()
         images['valid_move'] = pygame.transform.scale(images['valid_move'], (PIECE_SIZE // 2, PIECE_SIZE // 2))
     except:
-        print("Cannot load valid_move.png, using default indicator")
+        logger.warning("Cannot load valid_move.png, using default indicator")
         images['valid_move'] = pygame.Surface((PIECE_SIZE // 2, PIECE_SIZE // 2), pygame.SRCALPHA)
         pygame.draw.circle(images['valid_move'], (0, 255, 0, 128), (PIECE_SIZE // 4, PIECE_SIZE // 4), PIECE_SIZE // 4)
 
@@ -292,17 +310,17 @@ class Game:
         try:
             self.font = pygame.font.Font(GAME_FONT, scl(24))
         except pygame.error:
-            print(f"无法加载字体文件 {GAME_FONT}，使用系统默认字体")
+            logger.warning(f"无法加载字体文件 {GAME_FONT}，使用系统默认字体")
             self.font = pygame.font.Font(None, scl(24))
         try:
             self.title_font = pygame.font.Font(GAME_FONT, scl(38))
         except pygame.error:
-            print(f"无法加载字体文件 {GAME_FONT}，使用系统默认字体")
+            logger.warning(f"无法加载字体文件 {GAME_FONT}，使用系统默认字体")
             self.title_font = pygame.font.Font(None, scl(38))
         try:
             self.button_font = pygame.font.Font(GAME_BTN_FONT, scl(20))
         except pygame.error:
-            print(f"无法加载字体文件 {GAME_BTN_FONT}，使用系统默认字体")
+            logger.warning(f"无法加载字体文件 {GAME_BTN_FONT}，使用系统默认字体")
             self.button_font = pygame.font.Font(None, scl(20))
 
         self.images = load_images()
@@ -657,7 +675,7 @@ class Game:
             # 检查点击位置是否在按钮范围内
             if (btn_x <= x <= btn_x + btn_width and
                     btn_y <= y <= btn_y + btn_height):
-                print(f"按钮被点击: {button_id}")
+                logger.debug(f"按钮被点击: {button_id}")
                 return button_id
 
         return None
@@ -698,7 +716,7 @@ class Game:
                 
                 # 检查粮草是否为负
                 if final_food < 0:
-                    print("Cannot end turn: Not enough food for farming operations")
+                    logger.info("Cannot end turn: Not enough food for farming operations")
                     return
                     
                 # 检查是否有格子的丰饶度为负
@@ -707,13 +725,13 @@ class Game:
                         if self.resource_system.territory[row][col] == current.color:
                             post_fertility = self.resource_system.fertility[row][col] + fertility_changes[row][col]
                             if post_fertility < 0:
-                                print(f"Cannot end turn: Fertility at ({row}, {col}) would become negative")
+                                logger.info(f"Cannot end turn: Fertility at ({row}, {col}) would become negative")
                                 return
                 
                 # 执行税收 + 屯田
                 tax = self.resource_system.collect_tax(current.color)
                 farm_cost = self.resource_system.implement_farming(current.color)
-                print(f"{current.color} 征税 {tax}，屯田花费 {farm_cost}")
+                logger.debug(f"{current.color} 征税 {tax}，屯田花费 {farm_cost}")
                 self.phase = GamePhase.MOVE
                 self.management_view = ManagementView.NONE
                 self.event_handler.dispatch(GameEvent.PHASE_CHANGE)
@@ -786,18 +804,18 @@ class Game:
 
         # 检查是否已超过移动次数限制
         if current_player.moves_this_turn >= PIECE_MOVE_MAX_PER_TURN:
-            print("Maximum moves per turn reached")
+            logger.info("Maximum moves per turn reached")
             return False
 
         # 检查王是否已超过移动次数限制
         if piece.type == 'king' and piece.moved_this_turn >= PIECE_KING_MOVE_MAX_PER_TURN:
-            print("King can only move %s per turn" % to_times(PIECE_KING_MOVE_MAX_PER_TURN))
+            logger.info("King can only move %s per turn" % to_times(PIECE_KING_MOVE_MAX_PER_TURN))
             return False
 
         # 检查移动消耗
         move_cost = PIECE_MOVE_COST(piece.type, piece.moved_this_turn)
         if self.resource_system.food[current_player.color] < move_cost:
-            print(f"Not enough food to move {piece.type} (cost: {move_cost})")
+            logger.info(f"Not enough food to move {piece.type} (cost: {move_cost})")
             return False
 
         # 检查目标位置是否有敌方鹿角
@@ -805,7 +823,7 @@ class Game:
         if target_pos in self.antlers and self.antlers[target_pos] != piece.color:
             # 吃掉鹿角（不移位，只移除鹿角）
             del self.antlers[target_pos]
-            print(f"{piece.color} ate enemy antlers")
+            logger.debug(f"{piece.color} ate enemy antlers")
             
             # 扣除移动消耗
             self.resource_system.food[current_player.color] -= move_cost
@@ -814,7 +832,7 @@ class Game:
 
         # 检查目标位置是否有敌方堡垒
         if target_pos in self.fortresses and self.fortresses[target_pos] != piece.color:
-            print(f"{piece.color} cannot move to enemy fortress")
+            logger.info(f"{piece.color} cannot move to enemy fortress")
             return False  # 无法移动到敌方堡垒
 
         # 处理目标位置的棋子（吃子）
@@ -1013,7 +1031,7 @@ class Game:
             if self.board[row][col] and self.board[row][col].color == current_player.color:
                 # 检查技能使用次数限制
                 if current_player.skills_used_this_turn >= SKILL_MAX_PER_TURN:
-                    print("Maximum skills per turn reached")
+                    logger.info("Maximum skills per turn reached")
                     return
 
                 piece = self.board[row][col]
@@ -1052,7 +1070,7 @@ class Game:
 
         # 检查粮草是否足够
         if not self.skill_system.can_cast_skill(piece.type, current_player.color):
-            print(f"Not enough food to cast {piece.type} skill")
+            logger.info(f"Not enough food to cast {piece.type} skill")
             return False
 
         # 兵技能 - 放置鹿角
@@ -1060,13 +1078,13 @@ class Game:
             pos = (piece.row, piece.col)
             # 检查位置是否已经有障碍物
             if pos in self.antlers or pos in self.fortresses:
-                print("Cannot place antlers on existing obstacle")
+                logger.info("Cannot place antlers on existing obstacle")
                 return False
 
             # 扣除粮草并放置鹿角
             if self.skill_system.cast_skill(piece.type, current_player.color):
                 self.antlers[pos] = current_player.color
-                print(f"{current_player.color} placed antlers at {pos}")
+                logger.debug(f"{current_player.color} placed antlers at {pos}")
                 return True
 
         # 车技能 - 放置堡垒
@@ -1074,18 +1092,18 @@ class Game:
             pos = (piece.row, piece.col)
             # 检查位置是否已经有障碍物
             if pos in self.antlers or pos in self.fortresses:
-                print("Cannot place fortress on existing obstacle")
+                logger.info("Cannot place fortress on existing obstacle")
                 return False
 
             # 扣除粮草并放置堡垒
             if self.skill_system.cast_skill(piece.type, current_player.color):
                 self.fortresses[pos] = current_player.color
-                print(f"{current_player.color} placed fortress at {pos}")
+                logger.debug(f"{current_player.color} placed fortress at {pos}")
                 return True
 
         # 其他棋子无技能
         else:
-            print(f"{piece.type} has no skill")
+            logger.info(f"{piece.type} has no skill")
             return False
 
     def on_turn_end(self, data=None):
@@ -1103,9 +1121,9 @@ class Game:
     def on_phase_change(self, data=None):
         # 阶段变化时的处理逻辑
         if self.phase == GamePhase.ACTION:
-            print("进入行动阶段")
+            logger.info("进入行动阶段")
         elif self.phase == GamePhase.MOVE:
-            print("进入走子阶段")
+            logger.info("进入走子阶段")
 
     def check_game_over(self):
         # 检查游戏是否结束
@@ -1214,6 +1232,7 @@ def main():
         clock.tick(60)
 
     pygame.quit()
+    logger.info("Game ended")
     sys.exit()
 
 

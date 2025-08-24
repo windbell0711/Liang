@@ -178,3 +178,8 @@ def to_times(times: int) -> str:
             return "twice"
         case _:
             return "%d times" % times
+
+
+# 杂项
+CONSOLE_LOGGING = True
+FILE_LOGGING_NAME = "log/game.log"
