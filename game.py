@@ -143,7 +143,7 @@ class Piece:
         self.row = row  # 行位置
         self.col = col  # 列位置
         self.selected = False  # 是否被选中
-        self.moved_this_turn = False  # 本回合是否已移动
+        self.moved_this_turn = 0  # 本回合移动次数
 
     def draw(self, screen, images, font, transparency=1.0):
         # 计算棋子在屏幕上的位置
@@ -185,7 +185,7 @@ class Piece:
 
     def reset_turn_state(self):
         # 重置回合状态
-        self.moved_this_turn = False
+        self.moved_this_turn = 0
 
 
 # 玩家类
@@ -514,7 +514,7 @@ class Game:
             screen.blit(text, (scl(60), scl(210) + i * scl(30)))
 
     def draw_game_info(self, screen):
-        # 定义信息栏的位置和尺寸
+        # 定义信息栏的位置和尺寸（没用）
         info_rect = pygame.Rect(POS_INFO_NW[0], POS_INFO_NW[1],
                                 POS_INFO_SE[0] - POS_INFO_NW[0],
                                 POS_INFO_SE[1] - POS_INFO_NW[1])
@@ -543,10 +543,11 @@ class Game:
             # 如果在行动阶段，显示操作后的粮草
             if self.phase == GamePhase.ACTION and player.color == current_player.color:
                 final_food, _ = self.calculate_post_operation_resources(player.color)
-                post_food_text = font_small.render(f"After: Food: {final_food}", True, 
-                                                  GREEN if final_food >= 0 else RED)  # 颜色提示
-                screen.blit(post_food_text, (x, y))
-                y += scl(40)
+                if final_food != self.resource_system.food[player.color]:
+                    post_food_text = font_small.render(f"After: Food: {final_food}", True,
+                                                       GREEN if final_food >= 0 else RED)  # 颜色提示
+                    screen.blit(post_food_text, (x, y))
+                    y += scl(40)
 
         y += scl(30)  # 增加一些间距
 
@@ -577,6 +578,16 @@ class Game:
             )
             screen.blit(skills_text, (x, y))
             y += scl(40)
+            
+            # 添加移动消耗信息（如果选中了棋子）
+            if self.selected_piece:
+                move_cost = PIECE_MOVE_COST(self.selected_piece.type, self.selected_piece.moved_this_turn)
+                cost_text = font_small.render(
+                    f"Move cost: {move_cost} food",
+                    True, WHITE
+                )
+                screen.blit(cost_text, (x, y))
+                y += scl(40)
 
         y += scl(20)
 
@@ -778,13 +789,28 @@ class Game:
             print("Maximum moves per turn reached")
             return False
 
+        # 检查王是否已超过移动次数限制
+        if piece.type == 'king' and piece.moved_this_turn >= PIECE_KING_MOVE_MAX_IN_A_TURN:
+            print("King can only move %s per turn" % to_times(PIECE_KING_MOVE_MAX_IN_A_TURN))
+            return False
+
+        # 检查移动消耗
+        move_cost = PIECE_MOVE_COST(piece.type, piece.moved_this_turn)
+        if self.resource_system.food[current_player.color] < move_cost:
+            print(f"Not enough food to move {piece.type} (cost: {move_cost})")
+            return False
+
         # 检查目标位置是否有敌方鹿角
         target_pos = (to_row, to_col)
         if target_pos in self.antlers and self.antlers[target_pos] != piece.color:
             # 吃掉鹿角（不移位，只移除鹿角）
             del self.antlers[target_pos]
             print(f"{piece.color} ate enemy antlers")
-            return True  # 不移位，但消耗移动次数
+            
+            # 扣除移动消耗
+            self.resource_system.food[current_player.color] -= move_cost
+            current_player.moves_this_turn += 1
+            return True  # 不移位，但消耗移动次数和粮草
 
         # 检查目标位置是否有敌方堡垒
         if target_pos in self.fortresses and self.fortresses[target_pos] != piece.color:
@@ -803,6 +829,9 @@ class Game:
         # 更新领土控制
         self.resource_system.update_territory(to_row, to_col, piece.color)
 
+        # 扣除移动消耗
+        self.resource_system.food[current_player.color] -= move_cost
+
         # 执行移动
         self.board[to_row][to_col] = piece
         self.board[from_row][from_col] = None
@@ -816,6 +845,14 @@ class Game:
     def get_valid_moves(self, row, col):
         piece = self.board[row][col]
         moves = []
+        current_player = self.get_current_player()
+        move_cost = PIECE_MOVE_COST(piece.type, piece.moved_this_turn)
+
+        # 检查是否有足够的粮草移动这个棋子
+        has_enough_food = self.resource_system.food[current_player.color] >= move_cost
+
+        if not has_enough_food:
+            return []  # 粮草不足，无法移动
 
         if piece.type == 'pawn':
             # 兵的特殊移动规则

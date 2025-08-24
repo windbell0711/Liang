@@ -2,7 +2,7 @@ from enum import Enum
 
 # 游戏常量
 SCREEN_SCALE = 0.75
-scl = lambda x: int(x * SCREEN_SCALE)
+scl = lambda x: round(x * SCREEN_SCALE)
 
 SCREEN_WIDTH = scl(1600)
 SCREEN_HEIGHT = scl(900)
@@ -15,8 +15,32 @@ INITIAL_FOOD = 20
 INITIAL_FERTILITY = 100
 
 FARM_MAX_IN_A_TURN = 5
-PIECE_MOVE_MAX_IN_A_TURN = 2
+PIECE_MOVE_MAX_IN_A_TURN = 3
+PIECE_KING_MOVE_MAX_IN_A_TURN = 1
 SKILL_MAX_IN_A_TURN = 2
+
+PIECE_BASIC_MOVE_COST = {
+    'pawn': 1,
+    'knight': 3,
+    'bishop': 3,
+    'rook': 5,
+    'queen': 9,
+    'king': 3
+}
+def PIECE_MOVE_COST(typ, moved_times):
+    if typ == 'king' and moved_times >= PIECE_KING_MOVE_MAX_IN_A_TURN:
+        return 9999
+    return PIECE_BASIC_MOVE_COST[typ] + 2 * moved_times
+
+def to_times(times: int) -> str:
+    match times:
+        case 1:
+            return "once"
+        case 2:
+            return "twice"
+        case _:
+            return "%d times" % times
+
 
 # 透明度常量
 BEHIND_OBST_TRANS = 0.6  # 棋子在障碍物下的透明度
@@ -25,8 +49,9 @@ BEHIND_OBST_TRANS = 0.6  # 棋子在障碍物下的透明度
 POS_GRID_NW_CENTRE = (scl(543), scl(193))  # 左上第一格的中心点
 POS_GRID_SE_CENTRE = (scl(1062), scl(708))  # 右下最后一格的中心点
 
-POS_INFO_NW = (scl(1200), scl(100))
-POS_INFO_SE = (scl(1540), scl(810))
+# 提示栏坐标
+POS_INFO_NW = (scl(1200), scl(100))  # 文本起始点
+POS_INFO_SE = (scl(1540), scl(810))  # （没用）
 
 # 计算网格间距
 GRID_SPACING_X = (POS_GRID_SE_CENTRE[0] - POS_GRID_NW_CENTRE[0]) / (GRID_SIZE - 1)
