@@ -20,8 +20,8 @@ INITIAL_FOOD = 20
 INITIAL_FERTILITY = 100
 
 FARM_MAX_IN_A_TURN = 5
-PIECE_MOVE_MAX_IN_A_TURN = 1
-SKILL_MAX_IN_A_TURN = 1
+PIECE_MOVE_MAX_IN_A_TURN = 2
+SKILL_MAX_IN_A_TURN = 2
 
 # 透明度常量
 BEHIND_OBST_TRANS = 0.6  # 棋子在障碍物下的透明度
@@ -337,11 +337,11 @@ class Piece:
         screen.blit(piece_img, piece_rect)
 
         # 绘制棋子ID（也应用透明度）
-        text_surface = font.render(str(self.id), True, BLACK if self.color == 'white' else WHITE)
-        if transparency < 1.0:
-            text_surface.set_alpha(int(255 * transparency))
-        text_rect = text_surface.get_rect(center=(x, y))
-        screen.blit(text_surface, text_rect)
+        # text_surface = font.render(str(self.id), True, BLACK if self.color == 'white' else WHITE)
+        # if transparency < 1.0:
+        #     text_surface.set_alpha(int(255 * transparency))
+        # text_rect = text_surface.get_rect(center=(x, y))
+        # screen.blit(text_surface, text_rect)
 
     def is_clicked(self, pos):
         # 检查点击位置是否在棋子上
@@ -361,6 +361,7 @@ class Player:
         self.pieces = []  # 玩家的棋子列表
         self.piece_count = piece_count
         self.moves_this_turn = 0  # 本回合移动次数
+        self.skills_used_this_turn = 0  # 本回合技能使用次数
         self.initialize_pieces()
 
     def initialize_pieces(self):
@@ -395,6 +396,7 @@ class Player:
     def reset_turn_state(self):
         # 重置回合状态
         self.moves_this_turn = 0
+        self.skills_used_this_turn = 0  # 重置技能使用次数
         for piece in self.pieces:
             piece.reset_turn_state()
 
@@ -519,6 +521,9 @@ class Game:
         # 绘制棋盘背景
         screen.blit(self.images['board'], (0, 0))
 
+        # 绘制每个格子的丰饶度
+        self.draw_fertility_values(screen)
+
         # 绘制管理视图的标记（如果有）
         if self.management_view != ManagementView.NONE:
             self.draw_management_marks(screen)
@@ -566,6 +571,24 @@ class Game:
         # 绘制管理视图说明（如果有）
         if self.management_view != ManagementView.NONE:
             self.draw_management_instructions(screen)
+
+    def draw_fertility_values(self, screen):
+        # 创建小号字体用于显示丰饶度
+        fertility_font = pygame.font.Font(GAME_FONT, scl(16))
+        
+        for row in range(GRID_SIZE):
+            for col in range(GRID_SIZE):
+                fertility = self.resource_system.fertility[row][col]
+                x, y = grid_to_screen(row, col)
+                
+                # 调整文本位置，使其位于格子右下角
+                text_x = x + GRID_SPACING_X * 0.3
+                text_y = y + GRID_SPACING_Y * 0.3
+                
+                # 绘制丰饶度文本（蓝色）
+                text_surface = fertility_font.render(str(fertility), True, BLUE)
+                text_rect = text_surface.get_rect(center=(text_x, text_y))
+                screen.blit(text_surface, text_rect)
 
     def draw_management_marks(self, screen):
         # 统一方框/圆圈的边长（像素）
@@ -685,6 +708,14 @@ class Game:
             screen.blit(moves_text, (x, y))
             y += scl(40)
 
+            # 添加技能使用次数显示
+            skills_text = font_small.render(
+                f"Skills: {current_player.skills_used_this_turn}/{SKILL_MAX_IN_A_TURN}",
+                True, WHITE
+            )
+            screen.blit(skills_text, (x, y))
+            y += scl(40)
+
         y += scl(20)
 
         # 绘制操作说明
@@ -698,6 +729,7 @@ class Game:
             instructions = [
                 "Click piece to select",
                 "Click target position to move",
+                "Right-click piece to use skill",
                 "Maximum 1 move per turn"
             ]
 
@@ -1045,13 +1077,13 @@ class Game:
         if self.phase == GamePhase.ACTION:
             self._handle_action_phase(pos)
         elif self.phase == GamePhase.MOVE:
-            self._handle_move_phase(pos)
+            self._handle_move_phase(pos, button)  # 添加button参数
 
     def _handle_action_phase(self, pos):
         # 行动阶段只能操作按钮，不能选择棋子
         pass
 
-    def _handle_move_phase(self, pos):
+    def _handle_move_phase(self, pos, button):
         # 将屏幕坐标转换为网格坐标
         grid_pos = screen_to_grid(pos[0], pos[1])
         if grid_pos is None:
@@ -1060,6 +1092,21 @@ class Game:
         row, col = grid_pos
         current_player = self.get_current_player()
 
+        # 右键点击 - 尝试使用技能
+        if button == 3:  # 右键
+            if self.board[row][col] and self.board[row][col].color == current_player.color:
+                # 检查技能使用次数限制
+                if current_player.skills_used_this_turn >= SKILL_MAX_IN_A_TURN:
+                    print("Maximum skills per turn reached")
+                    return
+
+                piece = self.board[row][col]
+                # 尝试使用技能
+                if self.cast_skill(piece):
+                    current_player.skills_used_this_turn += 1
+            return
+
+        # 左键点击 - 原有的移动逻辑
         # 如果没有选中的棋子，尝试选择一个
         if self.selected_piece is None:
             if self.board[row][col] and self.board[row][col].color == current_player.color:
@@ -1083,6 +1130,49 @@ class Game:
                 self.selected_piece.selected = False
                 self.selected_piece = None
                 self.valid_moves = []
+
+    def cast_skill(self, piece):
+        current_player = self.get_current_player()
+
+        # 检查粮草是否足够
+        if not self.skill_system.can_cast_skill(piece.type, current_player.color):
+            print(f"Not enough food to cast {piece.type} skill")
+            return False
+
+        # 兵技能 - 放置鹿角
+        if piece.type == 'pawn':
+            pos = (piece.row, piece.col)
+            # 检查位置是否已经有障碍物
+            if pos in self.antlers or pos in self.fortresses:
+                print("Cannot place antlers on existing obstacle")
+                return False
+
+            # 扣除粮草并放置鹿角
+            if self.skill_system.cast_skill(piece.type, current_player.color):
+                self.antlers[pos] = current_player.color
+                print(f"{current_player.color} placed antlers at {pos}")
+                return True
+
+        # 车技能 - 放置堡垒
+        elif piece.type == 'rook':
+            pos = (piece.row, piece.col)
+            # 检查位置是否已经有障碍物
+            if pos in self.antlers or pos in self.fortresses:
+                print("Cannot place fortress on existing obstacle")
+                return False
+
+            # 扣除粮草并放置堡垒
+            if self.skill_system.cast_skill(piece.type, current_player.color):
+                self.fortresses[pos] = current_player.color
+                print(f"{current_player.color} placed fortress at {pos}")
+                return True
+
+        # 其他棋子无技能
+        else:
+            print(f"{piece.type} has no skill")
+            return False
+
+        return False
 
     def on_turn_end(self, data=None):
         # 回合结束时的处理逻辑
