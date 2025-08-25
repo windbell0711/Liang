@@ -25,6 +25,10 @@ if CONSOLE_LOGGING:
     console_handler.setFormatter(logging.Formatter("%(asctime)s: %(levelname)s:\t%(filename)s:%(lineno)d\t%(message)s"))
     logger.addHandler(console_handler)
 
+# 初始化pygame
+pygame.init()
+pygame.font.init()
+
 # 事件处理器
 class EventHandler:
     def __init__(self):
@@ -255,73 +259,22 @@ class Player:
 
 # 游戏类
 class Game:
-    BUTTONS = {
-        # 白方
-        'white_tax': {
-            'name': '白征税',
-            'pos':  [scl(116), scl(252)],
-            'size': [scl(72),  scl(88)],
-            'anchor': 'NW',
-            'invisible': False,
-        },
-        'white_farm': {
-            'name': '白屯田',
-            'pos':  [scl(202), scl(252)],
-            'size': [scl(72),  scl(88)],
-            'anchor': 'NW',
-            'invisible': False,
-        },
-        'white_end': {
-            'name': '白结束',
-            'pos':  [scl(288), scl(252)],
-            'size': [scl(72),  scl(88)],
-            'anchor': 'NW',
-            'invisible': False,
-        },
-
-        # 黑方
-        'black_tax': {
-            'name': '黑征税',
-            'pos':  [scl(116), scl(565)],
-            'size': [scl(72),  scl(88)],
-            'anchor': 'NW',
-            'invisible': False,
-        },
-        'black_farm': {
-            'name': '黑屯田',
-            'pos':  [scl(202), scl(565)],
-            'size': [scl(72),  scl(88)],
-            'anchor': 'NW',
-            'invisible': False,
-        },
-        'black_end': {
-            'name': '黑结束',
-            'pos':  [scl(288), scl(565)],
-            'size': [scl(72),  scl(88)],
-            'anchor': 'NW',
-            'invisible': False,
-        }
-    }
-
     def __init__(self):
-        # 初始化pygame字体模块
-        pygame.font.init()
         # 尝试加载字体，如果失败则使用系统默认字体
         try:
-            self.font = pygame.font.Font(GAME_FONT, scl(24))
+            self.small_font = pygame.font.Font(GAME_FONT, FONT_SIZE_SMALL)
+            self.font       = pygame.font.Font(GAME_FONT, FONT_SIZE_NORMAL)
+            self.title_font = pygame.font.Font(GAME_FONT, FONT_SIZE_TITLE)
         except pygame.error:
             logger.warning(f"无法加载字体文件 {GAME_FONT}，使用系统默认字体")
-            self.font = pygame.font.Font(None, scl(24))
+            self.small_font = pygame.font.Font(None, FONT_SIZE_SMALL)
+            self.font       = pygame.font.Font(None, FONT_SIZE_NORMAL)
+            self.title_font = pygame.font.Font(None, FONT_SIZE_TITLE)
         try:
-            self.title_font = pygame.font.Font(GAME_FONT, scl(38))
+            self.chn_font   = pygame.font.Font(GAME_FONT_CHN, FONT_SIZE_NORMAL)
         except pygame.error:
-            logger.warning(f"无法加载字体文件 {GAME_FONT}，使用系统默认字体")
-            self.title_font = pygame.font.Font(None, scl(38))
-        try:
-            self.button_font = pygame.font.Font(GAME_BTN_FONT, scl(20))
-        except pygame.error:
-            logger.warning(f"无法加载字体文件 {GAME_BTN_FONT}，使用系统默认字体")
-            self.button_font = pygame.font.Font(None, scl(20))
+            logger.warning(f"无法加载字体文件 {GAME_FONT_CHN}，使用系统默认字体")
+            self.chn_font   = pygame.font.Font(None, FONT_SIZE_NORMAL)
 
         self.images = load_images()
 
@@ -346,7 +299,7 @@ class Game:
         self.management_view = ManagementView.NONE  # 管理视图
         self.initialize_board()
 
-        self.buttons = self.BUTTONS.copy()
+        self.buttons = BUTTONS.copy()
 
         # 添加技能相关属性
         self.pawn_abilities = {}  # 存储兵的鹿角技能效果
@@ -425,9 +378,6 @@ class Game:
             self.draw_management_instructions(screen)
 
     def draw_fertility_values(self, screen):
-        # 创建小号字体用于显示丰饶度
-        fertility_font = pygame.font.Font(GAME_FONT, scl(16))
-        
         for row in range(GRID_SIZE):
             for col in range(GRID_SIZE):
                 fertility = self.resource_system.fertility[row][col]
@@ -438,16 +388,13 @@ class Game:
                 text_y = y + GRID_SPACING_Y * 0.3
                 
                 # 绘制丰饶度文本（蓝色）
-                text_surface = fertility_font.render(str(fertility), True, BLUE)
+                text_surface = self.small_font.render(str(fertility), True, BLUE)
                 text_rect = text_surface.get_rect(center=(text_x, text_y))
                 screen.blit(text_surface, text_rect)
 
     def draw_management_marks(self, screen):
         # 统一方框/圆圈的边长（像素）
         mark_size = int(GRID_SPACING_X * 0.8)
-
-        # 创建小号字体用于显示操作后的丰饶度
-        small_font = pygame.font.Font(GAME_FONT, scl(14))
         
         current_player = self.get_current_player()
         
@@ -473,7 +420,7 @@ class Game:
                             
                             # 在右上角显示操作后的丰饶度（红色）
                             post_fertility = self.resource_system.fertility[row][col] + fertility_changes[row][col]
-                            text_surface = small_font.render(str(post_fertility), True, RED)
+                            text_surface = self.small_font.render(str(post_fertility), True, RED)
                             text_rect = text_surface.get_rect(center=(x + rect_size//3, y - rect_size//3))
                             screen.blit(text_surface, text_rect)
                         else:
@@ -497,7 +444,7 @@ class Game:
                         
                         # 在右上角显示操作后的丰饶度（红色）
                         post_fertility = self.resource_system.fertility[row][col] + fertility_changes[row][col]
-                        text_surface = small_font.render(str(post_fertility), True, RED)
+                        text_surface = self.font.render(str(post_fertility), True, RED)
                         text_rect = text_surface.get_rect(center=(x + mark_size//3, y - mark_size//3))
                         screen.blit(text_surface, text_rect)
 
@@ -526,9 +473,8 @@ class Game:
         screen.blit(instruction_bg, (scl(50), scl(200)))
 
         # 绘制说明文字
-        font_small = pygame.font.Font(GAME_FONT, scl(20))
         for i, instruction in enumerate(instructions):
-            text = font_small.render(instruction, True, WHITE)
+            text = self.small_font.render(instruction, True, WHITE)
             screen.blit(text, (scl(60), scl(210) + i * scl(30)))
 
     def draw_game_info(self, screen):
@@ -537,24 +483,19 @@ class Game:
                                 POS_INFO_SE[0] - POS_INFO_NW[0],
                                 POS_INFO_SE[1] - POS_INFO_NW[1])
 
-        # 设置字体
-        font_large = pygame.font.Font(GAME_FONT, scl(36))
-        font_small = pygame.font.Font(GAME_FONT, scl(28))
-
         # 计算文本起始位置
         x = POS_INFO_NW[0] + scl(20)
         y = POS_INFO_NW[1] + scl(20)
 
         # 绘制当前玩家信息
         current_player = self.get_current_player()
-        text = font_large.render(f"Player: {current_player.color}", True, WHITE)
+        text = self.title_font.render(f"Player: {current_player.color}", True, WHITE)
         screen.blit(text, (x, y))
         y += scl(70)
 
         # 绘制玩家资源信息
         for player in self.players:
-            food_text = font_small.render(f"{player.color}: Food: {self.resource_system.food[player.color]}", True,
-                                          WHITE)
+            food_text = self.font.render(f"{player.color}: Food: {self.resource_system.food[player.color]}", True, WHITE)
             screen.blit(food_text, (x, y))
             y += scl(40)
             
@@ -562,7 +503,7 @@ class Game:
             if self.phase == GamePhase.ACTION and player.color == current_player.color:
                 final_food, _ = self.calculate_post_operation_resources(player.color)
                 if final_food != self.resource_system.food[player.color]:
-                    post_food_text = font_small.render(f"After: Food: {final_food}", True,
+                    post_food_text = self.font.render(f"After: Food: {final_food}", True,
                                                        GREEN if final_food >= 0 else RED)  # 颜色提示
                     screen.blit(post_food_text, (x, y))
                     y += scl(40)
@@ -570,19 +511,20 @@ class Game:
         y += scl(30)  # 增加一些间距
 
         # 绘制当前阶段信息
-        phase_text = font_small.render(f"Phase: {self.phase.value}", True, WHITE)
+        phase_text = self.font.render(f"Phase: {self.phase.value}", True,
+            {GamePhase.MOVE: LIGHT_BROWN, GamePhase.ACTION: YELLOW}.get(self.phase, WHITE))
         screen.blit(phase_text, (x, y))
         y += scl(40)
 
         # 绘制管理视图信息
         if self.management_view != ManagementView.NONE:
-            view_text = font_small.render(f"View: {self.management_view.value}", True, WHITE)
+            view_text = self.font.render(f"View: {self.management_view.value}", True, WHITE)
             screen.blit(view_text, (x, y))
             y += scl(40)
 
         # 绘制移动次数信息
         if self.phase == GamePhase.MOVE:
-            moves_text = font_small.render(
+            moves_text = self.font.render(
                 f"Moves: {current_player.moves_this_turn}/{PIECE_MOVE_MAX_PER_TURN}",
                 True, WHITE
             )
@@ -590,7 +532,7 @@ class Game:
             y += scl(40)
 
             # 添加技能使用次数显示
-            skills_text = font_small.render(
+            skills_text = self.font.render(
                 f"Skills: {current_player.skills_used_this_turn}/{SKILL_MAX_PER_TURN}",
                 True, WHITE
             )
@@ -600,7 +542,7 @@ class Game:
             # 添加移动消耗信息（如果选中了棋子）
             if self.selected_piece:
                 move_cost = PIECE_MOVE_COST(self.selected_piece.type, self.selected_piece.moved_this_turn)
-                cost_text = font_small.render(
+                cost_text = self.font.render(
                     f"Move cost: {move_cost} food",
                     True, WHITE
                 )
@@ -614,28 +556,27 @@ class Game:
         if self.phase == GamePhase.ACTION:
             instructions = [
                 "Click Tax/Farming buttons for planning",
-                "Click End Turn to implement plan"
+                "Click End Turn to implement plan",
             ]
         elif self.phase == GamePhase.MOVE:
             instructions = [
                 "Click piece to select",
                 "Click target position to move",
                 "Right-click piece to use skill",
-                "Maximum 1 move per turn"
             ]
 
         for instruction in instructions:
-            text = font_small.render(instruction, True, WHITE)
+            text = self.font.render(instruction, True, WHITE)
             screen.blit(text, (x, y))
             y += scl(40)
 
         # 如果游戏结束，显示获胜者
         if self.game_over:
             y += scl(20)  # 增加一些间距
-            winner_text = font_large.render(f"Game Over!", True, WHITE)
+            winner_text = self.title_font.render(f"Game Over!", True, WHITE)
             screen.blit(winner_text, (x, y))
             y += scl(70)
-            winner_text = font_large.render(f"Winner: {self.winner}", True, WHITE)
+            winner_text = self.title_font.render(f"Winner: {self.winner}", True, WHITE)
             screen.blit(winner_text, (x, y))
 
     def draw_buttons(self, screen):
@@ -661,7 +602,7 @@ class Game:
             color = (100, 100, 200) if is_usable else (100, 100, 100)
             pygame.draw.rect(screen, color, rect)
             pygame.draw.rect(screen, BLACK, rect, 2)
-            text = self.button_font.render(info['name'], True, WHITE)
+            text = self.chn_font.render(info['name'], True, WHITE)
             text_rect = text.get_rect(center=rect.center)
             screen.blit(text, text_rect)
 

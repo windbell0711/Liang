@@ -130,12 +130,16 @@ class SkillSystem:
 # 显示参数
 SCREEN_SCALE = 0.75
 scl = lambda x: round(x * SCREEN_SCALE)
-
 SCREEN_WIDTH = scl(1600)
 SCREEN_HEIGHT = scl(900)
-GAME_FONT = "fonts/Minecraftia-Regular-1.ttf"
-GAME_BTN_FONT = "fonts/simsun.ttc"
 GRID_SIZE = 8  # 8x8棋盘
+
+# 字体
+GAME_FONT        = "fonts/Minecraftia-Regular-1.ttf"
+GAME_FONT_CHN    = "fonts/simsun.ttc"
+FONT_SIZE_SMALL  = scl(16)
+FONT_SIZE_NORMAL = scl(24)
+FONT_SIZE_TITLE  = scl(36)
 
 # 透明度常量
 BEHIND_OBST_TRANS = 0.6  # 棋子在障碍物下的透明度
@@ -169,6 +173,55 @@ DARK_BROWN = (139, 69, 19)
 HIGHLIGHT_GREEN = (0, 255, 0, 128)
 HIGHLIGHT_RED = (255, 0, 0, 128)
 
+# 按钮定义
+BUTTONS = {
+    # 白方
+    'white_tax': {
+        'name': '白征税',
+        'pos':  [scl(116), scl(252)],
+        'size': [scl(72),  scl(88)],
+        'anchor': 'NW',
+        'invisible': False,
+    },
+    'white_farm': {
+        'name': '白屯田',
+        'pos':  [scl(202), scl(252)],
+        'size': [scl(72),  scl(88)],
+        'anchor': 'NW',
+        'invisible': False,
+    },
+    'white_end': {
+        'name': '白结束',
+        'pos':  [scl(288), scl(252)],
+        'size': [scl(72),  scl(88)],
+        'anchor': 'NW',
+        'invisible': False,
+    },
+
+    # 黑方
+    'black_tax': {
+        'name': '黑征税',
+        'pos':  [scl(116), scl(565)],
+        'size': [scl(72),  scl(88)],
+        'anchor': 'NW',
+        'invisible': False,
+    },
+    'black_farm': {
+        'name': '黑屯田',
+        'pos':  [scl(202), scl(565)],
+        'size': [scl(72),  scl(88)],
+        'anchor': 'NW',
+        'invisible': False,
+    },
+    'black_end': {
+        'name': '黑结束',
+        'pos':  [scl(288), scl(565)],
+        'size': [scl(72),  scl(88)],
+        'anchor': 'NW',
+        'invisible': False,
+    }
+}
+
 # 字符串优化
 def to_times(times: int) -> str:
     match times:
@@ -180,6 +233,6 @@ def to_times(times: int) -> str:
             return "%d times" % times
 
 
-# 杂项
+# 日志
 CONSOLE_LOGGING = True
 FILE_LOGGING_NAME = "log/game.log"
