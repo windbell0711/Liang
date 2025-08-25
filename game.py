@@ -301,6 +301,10 @@ class Game:
 
         self.buttons = BUTTONS.copy()
 
+        # 添加鼠标拖动相关的属性
+        self.mouse_dragging = False  # 跟踪鼠标是否正在拖动
+        self.last_drag_pos = None    # 记录上一次拖动的格子位置
+
         # 添加技能相关属性
         self.pawn_abilities = {}  # 存储兵的鹿角技能效果
         self.rook_fortresses = {}  # 存储车的堡垒技能效果
@@ -904,7 +908,7 @@ class Game:
 
         return valid_moves
 
-    def handle_management_view_click(self, pos, button):
+    def handle_management_view_click(self, pos, button, is_drag=False):
         # 处理管理视图的点击
         grid_pos = screen_to_grid(pos[0], pos[1])
         if grid_pos is None:
@@ -916,6 +920,13 @@ class Game:
         # 只有自己的领土才能操作
         if self.resource_system.territory[row][col] != current_player.color:
             return
+
+        # 如果是拖动且位置没有变化，则跳过
+        if is_drag and self.last_drag_pos == (row, col):
+            return
+            
+        # 更新最后拖动位置
+        self.last_drag_pos = (row, col)
 
         if self.management_view == ManagementView.TAX:
             # 税收视图
@@ -1145,22 +1156,31 @@ def main():
     running = True
     while running:
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button in [1, 3]:  # 左键或右键点击
-                    game.handle_click(event.pos, event.button)
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r:  # 按R键重置游戏
-                    game.reset()
-                elif event.key == pygame.K_a and pygame.key.get_mods() & pygame.KMOD_CTRL:
-                    # Ctrl+A 标记所有可收税格子
-                    if game.management_view == ManagementView.TAX:
-                        current_player = game.get_current_player()
-                        for row in range(GRID_SIZE):
-                            for col in range(GRID_SIZE):
-                                if game.resource_system.territory[row][col] == current_player.color:
-                                    game.resource_system.tax_grid[row][col] = True
+            match event.type:
+                case pygame.QUIT:
+                    running = False
+                case pygame.MOUSEBUTTONDOWN:
+                    if event.button in [1, 3]:  # 左键或右键点击
+                        game.mouse_dragging = True  # 开始拖动
+                        game.last_drag_pos = None  # 重置最后拖动位置
+                        game.handle_click(event.pos, event.button)
+                case pygame.MOUSEBUTTONUP:
+                    game.mouse_dragging = False  # 结束拖动
+                case pygame.MOUSEMOTION:
+                    # 如果鼠标按下且在管理视图中，处理拖动
+                    if game.mouse_dragging and game.management_view != ManagementView.NONE:
+                        game.handle_management_view_click(event.pos, pygame.mouse.get_pressed()[0] and 1 or 3, is_drag=True)
+                case pygame.KEYDOWN:
+                    if event.key == pygame.K_r:  # 按R键重置游戏
+                        game.reset()
+                    elif event.key == pygame.K_a and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                        # Ctrl+A 标记所有可收税格子
+                        if game.management_view == ManagementView.TAX:
+                            current_player = game.get_current_player()
+                            for row in range(GRID_SIZE):
+                                for col in range(GRID_SIZE):
+                                    if game.resource_system.territory[row][col] == current_player.color:
+                                        game.resource_system.tax_grid[row][col] = True
 
         # 绘制背景
         screen.fill(BACKGROUND_COLOUR)
