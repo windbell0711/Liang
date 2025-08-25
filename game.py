@@ -265,15 +265,15 @@ class Game:
             self.small_font = pygame.font.Font(GAME_FONT, FONT_SIZE_SMALL)
             self.font       = pygame.font.Font(GAME_FONT, FONT_SIZE_NORMAL)
             self.title_font = pygame.font.Font(GAME_FONT, FONT_SIZE_TITLE)
-        except pygame.error:
-            logger.warning(f"无法加载字体文件 {GAME_FONT}，使用系统默认字体")
+        except FileNotFoundError:
+            logger.error(f"无法加载字体文件 {GAME_FONT}，使用系统默认字体")
             self.small_font = pygame.font.Font(None, FONT_SIZE_SMALL)
             self.font       = pygame.font.Font(None, FONT_SIZE_NORMAL)
             self.title_font = pygame.font.Font(None, FONT_SIZE_TITLE)
         try:
             self.chn_font   = pygame.font.Font(GAME_FONT_CHN, FONT_SIZE_NORMAL)
-        except pygame.error:
-            logger.warning(f"无法加载字体文件 {GAME_FONT_CHN}，使用系统默认字体")
+        except FileNotFoundError:
+            logger.error(f"无法加载字体文件 {GAME_FONT_CHN}，使用系统默认字体")
             self.chn_font   = pygame.font.Font(None, FONT_SIZE_NORMAL)
 
         self.images = load_images()
